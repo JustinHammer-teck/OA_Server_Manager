@@ -1,28 +1,31 @@
 import logging
 import subprocess
 import time
-from enum import Enum
 from subprocess import PIPE, Popen
 
 import core.settings as settings
 from core.client_manager import ClientManager
-
-
-class ServerState(Enum):
-    WAITING = 1
-    WARMUP = 2
-    RUNNING = 3
+from core.game_state_manager import GameStateManager
+from core.message_processor import MessageProcessor, MessageType
+from core.network_utils import NetworkUtils
 
 
 class Server:
-    __slots__ = ("_process", "i", "state", "logger", "nplayers_threshold", "client_manager")
+    __slots__ = (
+        "_process",
+        "logger",
+        "nplayers_threshold",
+        "client_manager",
+        "game_state_manager",
+        "message_processor",
+    )
 
     def __init__(self):
-        self.i: int = 0
-        self.state: ServerState = ServerState.WAITING
         self.logger = logging.getLogger(__name__)
         self.nplayers_threshold: int = settings.nplayers_threshold
         self.client_manager = ClientManager()
+        self.game_state_manager = GameStateManager(self.send_command)
+        self.message_processor = MessageProcessor(self.send_command)
 
     def start_server(self):
         self.logger.info("Start OA Server process")
@@ -127,3 +130,150 @@ class Server:
             time.sleep(1)  # Small delay between adding bots
 
         self.logger.info("All bots added successfully")
+
+    def process_server_message(self, raw_message: str):
+        """Process a single server message through the message processor and handle events."""
+        parsed_message = self.message_processor.process_message(raw_message)
+
+        if parsed_message.message_type == MessageType.CLIENT_CONNECTING:
+            self._handle_client_connecting(parsed_message)
+        elif parsed_message.message_type == MessageType.CLIENT_DISCONNECT:
+            self._handle_client_disconnect(parsed_message)
+        elif parsed_message.message_type == MessageType.MAP_INITIALIZED:
+            self._handle_map_initialized(parsed_message)
+        elif parsed_message.message_type == MessageType.STATUS_LINE:
+            self._handle_status_line(parsed_message)
+
+    def _handle_client_connecting(self, parsed_message):
+        """Handle client connection event."""
+        client_id = parsed_message.data["client_id"]
+        self.logger.info(f"Processing client {client_id} connection")
+
+        # Status parsing will be handled by subsequent STATUS_LINE messages
+
+    def _handle_client_disconnect(self, parsed_message):
+        """Handle client disconnection event."""
+        client_id = parsed_message.data["client_id"]
+        self.client_manager.remove_client(client_id)
+
+        # Check if we need to update game state based on player count
+        current_players = self.client_manager.get_client_count()
+        self.logger.info(
+            f"Client {client_id} disconnected. Current players: {current_players}"
+        )
+
+        # Send waiting message if in WAITING state
+        if self.game_state_manager.get_current_state().name == "WAITING":
+            self.game_state_manager.send_waiting_message(
+                current_players, self.nplayers_threshold
+            )
+
+    def _handle_map_initialized(self, parsed_message):
+        """Handle map initialization event."""
+        self.logger.info("Map initialized - processing state transitions")
+
+        current_players = self.client_manager.get_client_count()
+
+        # Check for state transitions
+        result = self.game_state_manager.handle_map_initialized()
+
+        if result.get("experiment_finished"):
+            self.logger.info("Experiment sequence completed!")
+            return
+
+        # Apply actions based on state manager response
+        if "apply_latency" in result.get("actions", []):
+            self._apply_latency_rules()
+
+        if "rotate_latency" in result.get("actions", []):
+            self._rotate_latencies()
+
+    def _handle_status_line(self, parsed_message):
+        """Handle server status output."""
+        if parsed_message.data.get("status_complete"):
+            # Status parsing complete, process all discovered client IPs
+            client_ips = parsed_message.data.get("client_ips", [])
+            self._process_discovered_clients(client_ips)
+        elif parsed_message.data.get("client_ip"):
+            # Individual client IP discovered
+            client_ip = parsed_message.data["client_ip"]
+            self.logger.debug(f"Discovered client IP: {client_ip}")
+
+    def _process_discovered_clients(self, client_ips):
+        """Process newly discovered client IPs and update game state."""
+        # Add clients to client manager with latency assignment
+        for i, ip in enumerate(client_ips):
+            # Use a placeholder client ID (in real scenario, we'd track this better)
+            client_id = hash(ip) % 1000  # Simple hash-based ID
+            latency = settings.latencies[
+                len(self.client_manager.ip_latency_map) % len(settings.latencies)
+            ]
+            self.client_manager.add_client(client_id, ip, latency)
+
+        current_players = self.client_manager.get_client_count()
+        self.logger.info(f"Updated player count: {current_players}")
+
+        # Check for state transitions
+        if self.game_state_manager.should_transition_to_warmup(
+            current_players, self.nplayers_threshold
+        ):
+            self._start_warmup_phase()
+
+    def _start_warmup_phase(self):
+        """Start the warmup phase with bots if enabled."""
+        self.game_state_manager.transition_to_warmup()
+
+        # Add bots if enabled
+        if settings.bot_enable and settings.bot_count > 0:
+            self.logger.info("Adding bots before warmup")
+            self.add_bots(
+                settings.bot_count, settings.bot_difficulty, settings.bot_names
+            )
+
+    def _apply_latency_rules(self):
+        """Apply current latency rules to all connected clients."""
+        latency_map = self.client_manager.get_latency_map()
+        if latency_map:
+            # Use default interface from settings or environment
+            interface = "enp1s0"  # Could be made configurable
+            NetworkUtils.apply_latency_rules(latency_map, interface)
+            self.logger.info(f"Applied latency rules to {len(latency_map)} clients")
+
+    def _rotate_latencies(self):
+        """Rotate latency assignments for the next round."""
+        # Simple rotation strategy - could be enhanced
+        current_latencies = list(settings.latencies)
+        rotated_latencies = current_latencies[1:] + current_latencies[:1]
+
+        self.client_manager.assign_latencies(rotated_latencies)
+        self.logger.info(f"Rotated latencies: {rotated_latencies}")
+
+    def run_server_loop(self):
+        """Main server message processing loop."""
+        self.logger.info("Starting server message processing loop")
+
+        try:
+            while True:
+                # Read message from server
+                message = self.read_server()
+                if message:
+                    # Log the raw message
+                    self.logger.debug(f"SERVER: {message}")
+
+                    # Process through our message processor
+                    self.process_server_message(message)
+
+                    # Check for experiment completion
+                    if self.game_state_manager.is_experiment_finished():
+                        self.logger.info("Experiment completed, exiting loop")
+                        break
+
+                # Small delay to prevent CPU spinning
+                time.sleep(0.01)
+
+        except KeyboardInterrupt:
+            self.logger.info("Server loop interrupted by user")
+        except Exception as e:
+            self.logger.error(f"Error in server loop: {e}", exc_info=True)
+        finally:
+            self.logger.info("Server loop ended")
