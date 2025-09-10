@@ -1,5 +1,7 @@
+/node_modules
 /.direnv
 /.venv
 **/.ropeproject
 **/.DS_Store
 
+.env

@@ -1,0 +1,22 @@
+import os
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
+
+def get_bool_env(key, default=False):
+    return os.getenv(key, str(default)).lower() in ("true", "1", "yes")
+
+
+nplayers_threshold = int(os.getenv("NPLAYERS_THRESHOLD", 2))
+timelimit = int(os.getenv("TIMELIMIT", 2))
+warmup_timelimit = int(os.getenv("WARMUP_TIMELIMIT", 5))
+repeats = int(os.getenv("REPEATS", 1))
+
+bot_enable = get_bool_env("BOT_ENABLE")
+bot_count = int(os.getenv("BOT_COUNT", 4))
+bot_difficulty = int(os.getenv("BOT_DIFFICULTY", 1))
+bot_names = os.getenv("BOT_NAMES", "").split(",")
+
+latencies = [int(lat) for lat in os.getenv("LATENCIES", "200").split(",")]
