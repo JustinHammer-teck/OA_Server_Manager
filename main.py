@@ -78,6 +78,11 @@ Examples:
   python main.py --add-bots 2 --bot-difficulty 4            # Default (4) + 2 = 6 bots
   python main.py --bots 6 --bot-names "Sarge,Bones,Slash"   # 6 bots with specific names
   python main.py --no-bots                                   # No bots
+
+Game Configuration (set in .env file):
+  CAPTURELIMIT=8          # Capture/frag limit to end match (default: 8)
+  WARMUP_TIME=20          # Warmup duration in seconds (default: 20)
+  ENABLE_WARMUP=1         # Enable warmup mode (default: 1)
         """,
     )
 

@@ -21,6 +21,11 @@ bot_names = os.getenv("BOT_NAMES", "").split(",")
 
 latencies = [int(lat) for lat in os.getenv("LATENCIES", "200").split(",")]
 
+# OpenArena Game Configuration
+capturelimit = int(os.getenv("CAPTURELIMIT", 8))
+warmup_time = int(os.getenv("WARMUP_TIME", 20))
+enable_warmup = get_bool_env("ENABLE_WARMUP", True)
+
 # OBS WebSocket settings
 obs_port = os.getenv("OBS_PORT", "4455")
 obs_password = os.getenv("OBS_PASSWORD", None)

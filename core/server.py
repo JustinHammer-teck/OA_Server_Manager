@@ -97,6 +97,15 @@ class Server:
                 "+set",
                 "cl_motd",
                 "Welcome To ASTRID lab",
+                "+set",
+                "capturelimit",
+                str(settings.capturelimit),
+                "+set", 
+                "g_warmup",
+                str(settings.warmup_time),
+                "+set",
+                "g_dowarmup",
+                "1" if settings.enable_warmup else "0",
                 "+exec",
                 "t_server.cfg",
             ],
@@ -182,6 +191,33 @@ class Server:
             time.sleep(1)  # Small delay between adding bots
 
         self.logger.info("All bots added successfully")
+
+    def set_capturelimit(self, limit: int):
+        """Set the capturelimit (fraglimit) for matches."""
+        self.send_command(f"capturelimit {limit}")
+        self.send_command(f"say Capturelimit set to {limit}")
+        self.logger.info(f"Capturelimit set to {limit}")
+
+    def set_warmup_time(self, seconds: int):
+        """Set warmup duration in seconds."""
+        self.send_command(f"g_warmup {seconds}")
+        self.send_command(f"say Warmup time set to {seconds} seconds")
+        self.logger.info(f"Warmup time set to {seconds} seconds")
+
+    def enable_warmup(self, enable: bool = True):
+        """Enable or disable warmup mode."""
+        value = "1" if enable else "0"
+        self.send_command(f"g_dowarmup {value}")
+        status = "enabled" if enable else "disabled"
+        self.send_command(f"say Warmup {status}")
+        self.logger.info(f"Warmup {status}")
+
+    def apply_game_config(self):
+        """Apply current game configuration settings."""
+        self.set_capturelimit(settings.capturelimit)
+        self.set_warmup_time(settings.warmup_time) 
+        self.enable_warmup(settings.enable_warmup)
+        self.logger.info("Applied game configuration from settings")
 
     def process_server_message(self, raw_message: str):
         """Process a single server message through the message processor and handle events."""
