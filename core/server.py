@@ -218,9 +218,7 @@ class Server:
         )
 
         if self.game_state_manager.get_current_state().name == "WAITING":
-            self.game_state_manager.send_waiting_message(
-                current_players, self.nplayers_threshold
-            )
+            self.send_command(f"say WAITING ROOM: {current_players}/{self.nplayers_threshold} players connected")
 
         if current_players > 0:
             self.display_utils.display_client_table(
@@ -383,9 +381,7 @@ class Server:
         )
 
         if current_state.name == "WAITING":
-            self.game_state_manager.send_waiting_message(
-                human_count, self.nplayers_threshold
-            )
+            self.send_command(f"say WAITING ROOM: {human_count}/{self.nplayers_threshold} players connected")
             
         if current_players > 0:
             self.display_utils.display_client_table(self.client_manager, "CLIENT STATUS UPDATE")
