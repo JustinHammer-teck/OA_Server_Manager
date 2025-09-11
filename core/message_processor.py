@@ -8,8 +8,10 @@ from enum import Enum
 class MessageType(Enum):
     CLIENT_CONNECTING = "client_connecting"
     CLIENT_DISCONNECT = "client_disconnect"
-    MAP_INITIALIZED = "map_initialized"
+    GAME_INITIALIZATION = "game_initialization"
     MATCH_END_FRAGLIMIT = "match_end_fraglimit"
+    WARMUP_STATE = "warmup_state"
+    SHUTDOWN_GAME = "shutdown_game"
     STATUS_LINE = "status_line"
     UNKNOWN = "unknown"
 
@@ -37,14 +39,20 @@ class MessageProcessor:
         self.patterns = {
             MessageType.CLIENT_CONNECTING: re.compile(r"^Client ([0-9]+) connecting with ([0-9]+) challenge ping$"),
             MessageType.CLIENT_DISCONNECT: re.compile(r"^ClientDisconnect: ([0-9]+)$"),
-            MessageType.MAP_INITIALIZED: re.compile(r"^AAS initialized\.$"),
-            MessageType.MATCH_END_FRAGLIMIT: re.compile(r"^Exit: Fraglimit hit\.$")
+            MessageType.GAME_INITIALIZATION: re.compile(r"^------- Game Initialization -------$"),
+            MessageType.MATCH_END_FRAGLIMIT: re.compile(r"^Exit: Fraglimit hit\.$"),
+            MessageType.WARMUP_STATE: re.compile(r"^Warmup:\s*(.*)$"),
+            MessageType.SHUTDOWN_GAME: re.compile(r"^ShutdownGame:\s*(.*)$")
         }
         
         # Track status parsing state
         self._parsing_status = False
         self._status_lines = []
         self._status_line_count = 0
+        
+        # Track recent game events for context
+        self._recent_fraglimit_hit = False
+        self._recent_game_initialization = False
     
     def process_message(self, raw_message: str) -> ParsedMessage:
         """Process a server message and return parsed result."""
@@ -63,14 +71,25 @@ class MessageProcessor:
         if match:
             return self._handle_client_disconnect(raw_message, match)
         
-        # Check for map initialized
-        match = self.patterns[MessageType.MAP_INITIALIZED].match(raw_message)
+        # Check for game initialization
+        match = self.patterns[MessageType.GAME_INITIALIZATION].match(raw_message)
         if match:
-            return ParsedMessage(
-                MessageType.MAP_INITIALIZED, 
-                raw_message,
-                {"event": "map_loaded"}
-            )
+            return self._handle_game_initialization(raw_message, match)
+        
+        # Check for fraglimit hit
+        match = self.patterns[MessageType.MATCH_END_FRAGLIMIT].match(raw_message)
+        if match:
+            return self._handle_fraglimit_hit(raw_message, match)
+        
+        # Check for warmup state
+        match = self.patterns[MessageType.WARMUP_STATE].match(raw_message)
+        if match:
+            return self._handle_warmup_state(raw_message, match)
+        
+        # Check for shutdown game
+        match = self.patterns[MessageType.SHUTDOWN_GAME].match(raw_message)
+        if match:
+            return self._handle_shutdown_game(raw_message, match)
         
         # Check if this is part of status output
         if self._parsing_status:
@@ -111,6 +130,86 @@ class MessageProcessor:
             MessageType.CLIENT_DISCONNECT,
             raw_message,
             {"client_id": client_id}
+        )
+    
+    def _handle_game_initialization(self, raw_message: str, match: re.Match) -> ParsedMessage:
+        """Handle game initialization message."""
+        self.logger.info("Game initialization detected - waiting to determine if warmup or match")
+        
+        # Set flag to track that we just saw a game initialization
+        self._recent_game_initialization = True
+        
+        return ParsedMessage(
+            MessageType.GAME_INITIALIZATION,
+            raw_message,
+            {
+                "event": "game_initialization",
+                "awaiting_type_determination": True
+            }
+        )
+    
+    def _handle_fraglimit_hit(self, raw_message: str, match: re.Match) -> ParsedMessage:
+        """Handle fraglimit hit message."""
+        self.logger.info("Fraglimit hit detected - match ended")
+        
+        # Set flag for upcoming ShutdownGame message
+        self._recent_fraglimit_hit = True
+        
+        return ParsedMessage(
+            MessageType.MATCH_END_FRAGLIMIT,
+            raw_message,
+            {"event": "match_ended", "reason": "fraglimit"}
+        )
+    
+    def _handle_warmup_state(self, raw_message: str, match: re.Match) -> ParsedMessage:
+        """Handle warmup state message."""
+        warmup_info = match.group(1).strip() if match.group(1) else ""
+        
+        # Check if this follows a recent game initialization
+        initialization_type = "warmup_initialization" if self._recent_game_initialization else "warmup_only"
+        
+        self.logger.info(f"Warmup state detected: '{warmup_info}' (type: {initialization_type})")
+        
+        # Clear fraglimit flag when warmup starts
+        self._recent_fraglimit_hit = False
+        # Clear game initialization flag after determination
+        self._recent_game_initialization = False
+        
+        return ParsedMessage(
+            MessageType.WARMUP_STATE,
+            raw_message,
+            {
+                "event": "warmup_started",
+                "warmup_info": warmup_info,
+                "is_active": True,
+                "initialization_type": initialization_type,
+                "follows_game_initialization": initialization_type == "warmup_initialization"
+            }
+        )
+    
+    def _handle_shutdown_game(self, raw_message: str, match: re.Match) -> ParsedMessage:
+        """Handle shutdown game message."""
+        shutdown_info = match.group(1).strip() if match.group(1) else ""
+        
+        # Determine if this is end of match or end of warmup based on recent events
+        is_match_end = self._recent_fraglimit_hit
+        if self._recent_fraglimit_hit:
+            event_type = "match_end"
+            self.logger.info("ShutdownGame after fraglimit hit - match ended")
+            # Reset flag after processing
+            self._recent_fraglimit_hit = False
+        else:
+            event_type = "warmup_end"
+            self.logger.info("ShutdownGame without fraglimit - warmup ended")
+        
+        return ParsedMessage(
+            MessageType.SHUTDOWN_GAME,
+            raw_message,
+            {
+                "event": event_type,
+                "shutdown_info": shutdown_info,
+                "is_match_end": is_match_end
+            }
         )
     
     def _handle_status_line(self, raw_message: str) -> ParsedMessage:

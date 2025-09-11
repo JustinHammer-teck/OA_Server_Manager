@@ -41,8 +41,8 @@ class GameConfigManager:
             True if setting was applied successfully
         """
         try:
-            self.send_command(f"set capturelimit {limit}")
-            self.send_command(f"say Capturelimit set to {limit}")
+            self.send_command(f"set flaglimit {limit}")
+            self.send_command(f"say flaglimit set to {limit}")
             self._current_config["capturelimit"] = limit
             self.logger.info(f"Capturelimit set to {limit}")
             return True
@@ -254,8 +254,8 @@ class GameConfigManager:
         
         try:
             # Add capture limit
-            if hasattr(settings, 'capturelimit'):
-                config_args["capturelimit"] = str(settings.capturelimit)
+            if hasattr(settings, 'flaglimit'):
+                config_args["flaglimit"] = str(settings.flaglimit)
             
             # Add warmup settings
             if hasattr(settings, 'warmup_time'):

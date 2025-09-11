@@ -9,7 +9,7 @@ def get_bool_env(key, default=False):
     return os.getenv(key, str(default)).lower() in ("true", "1", "yes")
 
 
-nplayers_threshold = int(os.getenv("NPLAYERS_THRESHOLD", 2))
+nplayers_threshold = int(os.getenv("NPLAYERS_THRESHOLD", 1))
 timelimit = int(os.getenv("TIMELIMIT", 2))
 warmup_timelimit = int(os.getenv("WARMUP_TIMELIMIT", 5))
 repeats = int(os.getenv("REPEATS", 1))
@@ -22,7 +22,7 @@ bot_names = os.getenv("BOT_NAMES", "").split(",")
 latencies = [int(lat) for lat in os.getenv("LATENCIES", "200").split(",")]
 
 # OpenArena Game Configuration
-capturelimit = int(os.getenv("CAPTURELIMIT", 8))
+flaglimit = int(os.getenv("FLAGLIMIT", 8))
 warmup_time = int(os.getenv("WARMUP_TIME", 20))
 enable_warmup = get_bool_env("ENABLE_WARMUP", True)
 

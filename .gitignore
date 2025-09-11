@@ -1,9 +1,9 @@
 /node_modules
 /.direnv
 /.venv
+/.idea
 **/.ropeproject
 **/.DS_Store
-
 **/*.bak
 
 __pycache__
