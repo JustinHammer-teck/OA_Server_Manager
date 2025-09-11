@@ -28,7 +28,6 @@ class BotManager:
         self.send_command = send_command_callback
         self.logger = logging.getLogger(__name__)
         
-        # Bot state tracking
         self._bots_added = False
         self._bot_config: Optional[Dict] = None
     
@@ -92,7 +91,6 @@ class BotManager:
         
         if success:
             self._bots_added = True
-            # Give time for bots to join
             time.sleep(2)
         
         return success
@@ -124,7 +122,7 @@ class BotManager:
                 self.logger.debug(f"Adding bot {name} with difficulty {difficulty}")
                 # Format: "addbot [name] [difficulty]"
                 self.send_command(f"addbot {name} {difficulty}")
-                time.sleep(1)  # Small delay between adding bots
+                time.sleep(1)
             
             self.logger.info("All bots added successfully")
             return True

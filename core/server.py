@@ -55,7 +55,7 @@ class Server:
 
     def _init_specialized_managers(self):
         """Initialize all specialized management components."""
-        # OBS Connection Manager
+
         obs_port = int(settings.obs_port) if hasattr(settings, "obs_port") else 4455
         obs_password = (
             settings.obs_password if hasattr(settings, "obs_password") else None
@@ -73,31 +73,22 @@ class Server:
             send_command_callback=self.send_command,
         )
 
-        # Bot Manager
         self.bot_manager = BotManager(send_command_callback=self.send_command)
 
-        # Game Configuration Manager
         self.game_config_manager = GameConfigManager(
             send_command_callback=self.send_command
         )
 
-        # Latency Manager (default interface, will be configured later)
         self.latency_manager = LatencyManager(
             interface="enp1s0", send_command_callback=self.send_command
         )
-
-    # =============================================================================
-    # Core Server Process Management
-    # =============================================================================
 
     def start_server(self):
         """Start the OpenArena dedicated server process."""
         self.logger.info("Starting OpenArena server process")
 
-        # Get startup configuration from game config manager
         startup_config = self.game_config_manager.apply_startup_config()
 
-        # Build server arguments
         server_args = [
             "oa_ded",
             "+set",
@@ -267,25 +258,23 @@ class Server:
         """Handle game initialization event - waiting to see if warmup or match follows."""
         self.logger.info("Game Initialization detected - determining initialization type")
         
-        # This is purely reactive - we just log and wait for the next message
-        # The type will be determined when/if we get a Warmup: message
         self.send_command("say Game initializing...")
 
-    # Schedule OBS connections during warmup
     def _handle_warmup_state(self, parsed_message):
         """Handle warmup state transition."""
         warmup_info = parsed_message.data.get("warmup_info", "")
         self.logger.info(f"Warmup phase started: {warmup_info}")
+
+        if self.bot_manager.should_add_bots() and not self.bot_manager.are_bots_added():
+            self.logger.info("Adding bots")
+            self.bot_manager.add_bots_to_server()
         
-        # Additional warmup handling can be added here
-        # For now, just log the event
         self.send_command("say Warmup phase active!")
 
     def _handle_shutdown_game(self, parsed_message):
         """Handle game shutdown - either warmup end or match end."""
         event_type = parsed_message.data.get("event", "unknown")
-        is_match_end = parsed_message.data.get("is_match_end", False)
-        
+
         if event_type == "match_end":
             self.logger.info("ShutdownGame: Match ended completely")
             result = self.game_state_manager.handle_match_end_detected()
@@ -304,7 +293,6 @@ class Server:
             
         elif event_type == "warmup_end":
             self.logger.info("ShutdownGame: Warmup ended, match starting")
-            # Transition from warmup to running match
             result = self.game_state_manager.handle_warmup_end()
             
             if result and "actions" in result:
@@ -350,8 +338,6 @@ class Server:
                 newly_added_humans.append(ip)
                 self.logger.info(f"New human client discovered: {ip}")
 
-        # Always try to connect OBS immediately for new clients
-        # This handles users joining at any time (including during warmup)
         if newly_added_humans and self._async_loop:
             for ip in newly_added_humans:
                 self._async_loop.create_task(
@@ -366,18 +352,14 @@ class Server:
             f"Updated player count: {current_players}, threshold: {self.nplayers_threshold}, state: {current_state.name}"
         )
 
-        # REACTIVE APPROACH: Only send status messages, don't control state transitions
-        # The server will send "Game Initialization" + "Warmup:" when it's ready
         if current_state.name == "WAITING":
             self.game_state_manager.send_waiting_message(
                 current_players, self.nplayers_threshold
             )
             
-        # Display updated client status
         if current_players > 0:
             self.display_utils.display_client_table(self.client_manager, "CLIENT STATUS UPDATE")
             
-            # Log current experiment status
             round_info = self.game_state_manager.get_round_info()
             self.logger.info(f"Experiment status: {round_info}")
 
