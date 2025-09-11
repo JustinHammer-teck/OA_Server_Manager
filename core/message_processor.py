@@ -247,8 +247,8 @@ class MessageProcessor:
         
         # After separator, check for client data lines
         if self._seen_separator:
-            # Client lines should match pattern: spaces + number (client ID)
-            if re.match(r'^\s+\d+\s+', raw_message):
+            # Client lines should match pattern: optional spaces + number (client ID)
+            if re.match(r'^\s*\d+\s+', raw_message):
                 client_data = self._extract_client_from_status_line(raw_message)
                 if client_data:
                     self._status_client_count += 1
