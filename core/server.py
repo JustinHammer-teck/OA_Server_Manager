@@ -174,6 +174,35 @@ class Server:
         """Set the async event loop for OBS operations."""
         self._async_loop = loop
         self.logger.debug("Async event loop set for OBS operations")
+    
+    async def cleanup_obs_async(self):
+        """Clean up OBS connections asynchronously."""
+        try:
+            await self.obs_connection_manager.cleanup_all()
+            self.logger.info("OBS connections cleaned up successfully")
+        except Exception as e:
+            self.logger.error(f"Error cleaning up OBS connections: {e}", exc_info=True)
+    
+    def _create_async_task_safe(self, coro, name: str = None):
+        """Safely create an async task with exception handling."""
+        if not self._async_loop:
+            self.logger.warning(f"No async loop available for task: {name or 'unnamed'}")
+            return None
+            
+        task = self._async_loop.create_task(coro)
+        if name:
+            task.set_name(name)
+        
+        def handle_task_exception(task_result):
+            try:
+                task_result.result()
+            except asyncio.CancelledError:
+                self.logger.debug(f"Task {name or 'unnamed'} was cancelled")
+            except Exception as e:
+                self.logger.error(f"Unhandled exception in task {name or 'unnamed'}: {e}", exc_info=True)
+        
+        task.add_done_callback(handle_task_exception)
+        return task
 
     def process_server_message(self, raw_message: str):
         """Process a server message and coordinate responses."""
@@ -205,10 +234,10 @@ class Server:
         client_ip = self.client_manager.get_client_ip(client_id)
 
         if client_ip and self.obs_connection_manager.is_client_connected(client_ip):
-            if self._async_loop:
-                self._async_loop.create_task(
-                    self.obs_connection_manager.disconnect_client(client_ip)
-                )
+            self._create_async_task_safe(
+                self.obs_connection_manager.disconnect_client(client_ip),
+                f"disconnect_client_{client_ip}"
+            )
 
         self.client_manager.remove_client(client_id)
 
@@ -229,12 +258,10 @@ class Server:
         """Handle match end due to fraglimit hit."""
         self.logger.info("Match ended - Fraglimit hit! Stopping OBS recordings...")
 
-        if self._async_loop:
-            self._async_loop.create_task(
-                self.obs_connection_manager.stop_match_recording(
-                    self.game_state_manager
-                )
-            )
+        self._create_async_task_safe(
+            self.obs_connection_manager.stop_match_recording(self.game_state_manager),
+            "stop_match_recording"
+        )
 
         self.send_command("say Match ended! Recordings stopped.")
 
@@ -309,12 +336,10 @@ class Server:
                 actions = result["actions"]
                 
                 if "start_match_recording" in actions:
-                    if self._async_loop:
-                        self._async_loop.create_task(
-                            self.obs_connection_manager.start_match_recording(
-                                self.game_state_manager
-                            )
-                        )
+                    self._create_async_task_safe(
+                        self.obs_connection_manager.start_match_recording(self.game_state_manager),
+                        "start_match_recording"
+                    )
                 
                 if "apply_latency" in actions:
                     if self.latency_manager.is_enabled():
@@ -376,12 +401,13 @@ class Server:
                 )
                 self.logger.info(f"[CLIENT] BOT client: ID={client_id}, Name={client_name}")
 
-        if newly_added_humans and self._async_loop:
+        if newly_added_humans:
             for ip in newly_added_humans:
-                self._async_loop.create_task(
+                self._create_async_task_safe(
                     self.obs_connection_manager.connect_single_client_immediately(
                         ip, self.client_manager
-                    )
+                    ),
+                    f"connect_client_{ip}"
                 )
 
         current_players = self.client_manager.get_client_count()
@@ -414,8 +440,12 @@ class Server:
                     self.process_server_message(message)
 
                     if self.game_state_manager.is_experiment_finished():
-                        self.logger.info("Experiment completed, exiting loop")
-                        break
+                        human_count = self.client_manager.get_human_count()
+                        if human_count > 0:
+                            self.logger.info("Experiment completed, exiting loop")
+                            break
+                        else:
+                            self.logger.debug("Experiment marked as finished but no human players - continuing to run")
 
                 time.sleep(0.01)  # Prevent CPU spinning
 
