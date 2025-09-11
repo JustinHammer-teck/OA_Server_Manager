@@ -4,4 +4,5 @@
 **/.ropeproject
 **/.DS_Store
 
+__pycache__
 .env

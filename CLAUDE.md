@@ -11,8 +11,14 @@ This is an OpenArena (OA) game server management system designed for network lat
 .
 ├── CLAUDE.md
 ├── README.md
+├── LATENCY_INVESTIGATION.md
+├── OA_CMDS_CONFIGS.md
+├── OBS_WEBSOCKET.md
 ├── core
 │   ├── __init__.py
+│   ├── client_manager.py
+│   ├── game_state_manager.py
+│   ├── message_processor.py
 │   ├── network_utils.py
 │   ├── server.py
 │   └── settings.py
@@ -123,13 +129,71 @@ Server behavior controlled via `.env` file:
 
 ## Implementation Requirements
 
-### Server Dependencies
-- OpenArena dedicated server (`oa_ded`) installed and in PATH
-- Linux system with `tc` (traffic control) and `nftables`
-- Root/sudo access for network rule management
-- Server configuration files (e.g., `andrew_server.cfg`, `t_server.cfg`)
+### Linux System Dependencies
+**Core Network Tools** (Required for latency simulation):
+- **`iproute2`** - Provides `tc` (traffic control) command for network shaping
+  ```bash
+  sudo apt-get install iproute2    # Debian/Ubuntu
+  sudo dnf install iproute-tc      # Fedora/RHEL
+  ```
 
-### Future Dependencies
+- **`nftables`** - Modern Linux firewall for packet marking and filtering
+  ```bash
+  sudo apt-get install nftables    # Debian/Ubuntu  
+  sudo dnf install nftables        # Fedora/RHEL
+  ```
+
+**System Privileges**:
+- **`sudo`** access required for network operations:
+  - `/usr/bin/sudo /sbin/tc` - Traffic control commands
+  - `/usr/bin/sudo nft` - Netfilter table operations
+  - Network interface manipulation
+
+**Game Server**:
+- **OpenArena dedicated server** (`oa_ded`) installed and available in PATH
+  ```bash
+  # Install OpenArena (varies by distribution)
+  sudo apt-get install openarena-server    # Debian/Ubuntu
+  sudo dnf install openarena               # Fedora
+  ```
+
+**Configuration Files**:
+- Server configuration files (e.g., `andrew_server.cfg`, `t_server.cfg`)
+- Map rotation and game settings files
+
+### Python Dependencies
+**Runtime Requirements**:
+- **Python 3.13+** (specified in pyproject.toml)
+- **`python-dotenv`** - Environment variable management
+
+**Installation**:
+```bash
+# Using uv (recommended)
+uv sync
+
+# Or using pip
+pip install python-dotenv
+```
+
+### Network Interface Requirements
+**Network Configuration**:
+- Physical or virtual network interface (default: `enp1s0`)
+- Interface must be configurable with `tc` rules
+- Root privileges for network manipulation
+
+**Verification Commands**:
+```bash
+# Check if tc is available
+which tc
+# Check if nft is available  
+which nft
+# Check network interfaces
+ip link show
+# Test sudo access
+sudo -v
+```
+
+### Future Dependencies (OBS Integration)
 - WebSocket libraries for OBS communication (`obs-websocket-py`)
 - Async frameworks for concurrent client management (`asyncio`)
 - JSON configuration files for experiment templates
@@ -158,84 +222,125 @@ Server behavior controlled via `.env` file:
 
 ## Current Refactoring Progress
 
-### ✅ **Completed Components** (133 lines total):
-1. **`core/server.py`**: Basic Server class with:
+### ✅ **Completed Components** (400+ lines total):
+1. **`core/server.py`**: **FULLY INTEGRATED** Server class (270 lines) with:
    - Server process management (`start_server`, `dispose`)
    - Command sending (`send_command`)
    - Bot management (`add_bots`)
-   - Basic state tracking (`ServerState` enum)
+   - **Complete message processing loop** (`run_server_loop`)
+   - **Event handlers** for all game events
+   - **Integrated client, state, and latency management**
 
-2. **`core/settings.py`**: Configuration management with environment variables
+2. **`core/client_manager.py`**: **NEW** ClientManager class (70 lines) with:
+   - Client connection tracking with IP addresses
+   - Latency assignment and rotation
+   - Connection/disconnection handling
 
-3. **`core/network_utils.py`**: Network latency utilities (`NetworkUtils` class)
+3. **`core/game_state_manager.py`**: **NEW** GameStateManager class (110 lines) with:
+   - State machine (WAITING → WARMUP → RUNNING)
+   - Match progression and experiment sequencing  
+   - Server command integration
 
-4. **`main.py`**: Simple OOP entry point (38 lines)
+4. **`core/message_processor.py`**: **NEW** MessageProcessor class (140 lines) with:
+   - Server message parsing with regex patterns
+   - Event detection and structured data extraction
+   - Status output parsing for client IP discovery
 
-### ❌ **Missing Key Components** (from 437-line `server_script.py`):
+5. **`core/settings.py`**: Configuration management with environment variables
 
-1. **Client Management System**:
-   - IP address tracking and parsing from server status
-   - Client connection/disconnection handling
-   - Player list management
+6. **`core/network_utils.py`**: Network latency utilities (`NetworkUtils` class)
 
-2. **Game State Machine Logic**:
-   - Complex match state transitions (WAITING → WARMUP → RUNNING)
-   - Round progression and experiment sequencing
-   - Match timing and progression logic
+7. **`main.py`**: **ENHANCED** integrated entry point (68 lines) with proper logging and cleanup
 
-3. **Server Message Processing**:
-   - Real-time parsing of server stderr output
-   - Pattern matching for client connections, disconnections, map changes
-   - Game event detection (e.g., "AAS initialized", "ClientDisconnect")
+### ✅ **REFACTORING COMPLETE** - All Core Components Implemented:
 
-4. **Experiment Management**:
-   - Latency rotation between matches
-   - Match counting and sequence control
-   - Automated progression through experimental phases
+1. **✅ Client Management System**: **COMPLETE**
+   - ✅ IP address tracking and parsing from server status
+   - ✅ Client connection/disconnection handling  
+   - ✅ Player list management with latency assignments
 
-5. **Signal Handling & Cleanup**:
-   - Proper SIGINT handling for graceful shutdown
-   - Network rule cleanup on exit
+2. **✅ Game State Machine Logic**: **COMPLETE**
+   - ✅ State transitions (WAITING → WARMUP → RUNNING)
+   - ✅ Round progression and experiment sequencing
+   - ✅ Match timing and progression logic
 
-6. **Missing Properties/Methods** in Server class:
-   - `nplayers_threshold` property (referenced at server.py:68,71 but not defined)
-   - `server_process` property (referenced at server.py:82 but not defined) 
-   - Message processing loop (main game loop)
+3. **✅ Server Message Processing**: **COMPLETE**
+   - ✅ Real-time parsing of server stderr output
+   - ✅ Pattern matching for client connections, disconnections, map changes
+   - ✅ Game event detection ("AAS initialized", "ClientDisconnect", etc.)
 
-### 🚧 **Current Bugs to Fix**:
-- `server.py:68,71`: References undefined `self.nplayers_threshold`
-- `server.py:82`: References undefined `self.server_process` 
-- `server.py:130`: Incorrect encoding in `send_command`
+4. **✅ Experiment Management**: **COMPLETE**
+   - ✅ Latency rotation between matches
+   - ✅ Match counting and sequence control
+   - ✅ Automated progression through experimental phases
+
+5. **✅ Signal Handling & Cleanup**: **COMPLETE**
+   - ✅ Proper SIGINT handling for graceful shutdown
+   - ✅ Network rule cleanup on exit
+
+6. **✅ All Server Properties/Methods**: **COMPLETE**
+   - ✅ All properties properly defined and integrated
+   - ✅ Complete message processing loop implemented
+   - ✅ Full integration of all manager components
+
+### 🎉 **All Phase 1 & 2 Bugs Fixed**:
+- ✅ All undefined property references resolved
+- ✅ All encoding issues fixed
+- ✅ Complete integration achieved
 
 ## Implementation Roadmap
 
-### **Phase 1: Fix Current Issues** (Priority: High)
-1. **Fix Server class bugs**:
-   - Add missing `nplayers_threshold` property
-   - Fix `server_process` property reference
-   - Fix encoding issue in `send_command`
+### **✅ Phase 1: Fix Current Issues** (Priority: High) - **COMPLETED**
+1. **✅ Fix Server class bugs**:
+   - ✅ Added missing `nplayers_threshold` property
+   - ✅ Fixed `server_process` property reference
+   - ✅ Fixed encoding issue in `send_command`
 
-2. **Complete basic Server functionality**:
-   - Add server message processing loop
-   - Implement proper state management integration
+2. **✅ Complete basic Server functionality**:
+   - ✅ Added server message processing loop
+   - ✅ Implemented proper state management integration
 
-### **Phase 2: Core Refactoring** (Priority: High)
-1. **Create ClientManager class** (`core/client_manager.py`):
-   - IP tracking and client registry
-   - Connection/disconnection event handling
-   - Integration with server status parsing
+### **✅ Phase 2: Core Refactoring** (Priority: High) - **COMPLETED**
+1. **✅ Created ClientManager class** (`core/client_manager.py`):
+   - ✅ IP tracking and client registry
+   - ✅ Connection/disconnection event handling
+   - ✅ Integration with server status parsing
 
-2. **Create GameStateManager class** (`core/game_state_manager.py`):
-   - State machine logic (WAITING → WARMUP → RUNNING)
-   - Match progression and timing
-   - Event-driven state transitions
+2. **✅ Created GameStateManager class** (`core/game_state_manager.py`):
+   - ✅ State machine logic (WAITING → WARMUP → RUNNING)
+   - ✅ Match progression and timing
+   - ✅ Event-driven state transitions
 
-3. **Create MessageProcessor class** (`core/message_processor.py`):
-   - Server output parsing with regex patterns
-   - Game event detection and dispatching
-   - Client status extraction
+3. **✅ Created MessageProcessor class** (`core/message_processor.py`):
+   - ✅ Server output parsing with regex patterns
+   - ✅ Game event detection and dispatching
+   - ✅ Client status extraction
 
-### **Phase 3: Advanced Features** (Priority: Medium)
+### **✅ Phase 2.5: Integration** (Priority: High) - **COMPLETED**
+1. **✅ Complete System Integration**:
+   - ✅ Integrated all three core classes into Server
+   - ✅ Added main message processing loop (`run_server_loop`)
+   - ✅ Connected client management with game state transitions
+   - ✅ Automated latency application and rotation
+   - ✅ Enhanced main.py with proper logging and cleanup
+
+### **✅ Phase 3: Investigation & Documentation** (Priority: High) - **COMPLETED**
+1. **✅ Complete Latency System Investigation**:
+   - ✅ Analyzed Linux Traffic Control (tc) and nftables integration
+   - ✅ Traced IP discovery and client mapping workflow
+   - ✅ Documented packet processing flow and network architecture
+   - ✅ Verified system scalability and performance characteristics
+
+2. **✅ Comprehensive Technical Documentation**:
+   - ✅ Created detailed investigation report (`LATENCY_INVESTIGATION.md`)
+   - ✅ Documented troubleshooting and verification procedures
+   - ✅ Added performance metrics and scalability data
+   - ✅ Included security considerations and research applications
+
+## **🎯 Current Status: CORE REFACTORING COMPLETE + FULLY DOCUMENTED**
+The system has been successfully refactored from the original 437-line procedural script to a modern OOP architecture with 400+ lines across 7 modular files. The server is now fully functional, tested, and comprehensively documented for research use.
+
+### **Phase 4: Advanced Features** (Priority: Medium)
 1. **Enhanced LatencyManager** (`core/latency_manager.py`):
    - Per-client latency configuration
    - Match-based latency rotation
@@ -246,7 +351,20 @@ Server behavior controlled via `.env` file:
    - Automated experiment progression
    - Data collection coordination
 
-### **Phase 4: OBS Integration** (Priority: Low - Future)
+### **Phase 5: Server Manager Latency Control** (Priority: High)
+1. **Server-side Latency Management Interface**:
+   - Real-time latency control and monitoring
+   - Dynamic latency adjustment during matches
+   - Per-client latency configuration interface
+   - Latency profile management (save/load configurations)
+
+2. **Administrative Control Features**:
+   - Live latency modification without restart
+   - Client-specific latency targeting
+   - Experiment template creation and management
+   - Real-time latency verification and monitoring
+
+### **Phase 6: OBS Integration** (Priority: Low - Future)
 1. **OBSController class** (`core/obs_controller.py`)
 2. **WebSocket communication layer**
 3. **Recording synchronization**
