@@ -56,11 +56,11 @@ class Server:
         # Async support
         self._async_loop: Optional[asyncio.AbstractEventLoop] = None
         self._obs_task: Optional[asyncio.Task] = None
-        
+
         # Bot configuration (will be set by configure_bots method)
         self._bot_config = None
         self._bots_added = False
-        
+
         # Network interface (default, can be updated via configure_interface)
         self._interface = "enp1s0"
 
@@ -110,9 +110,13 @@ class Server:
 
     def _server_init(self):
         # Use bot configuration from command line args or fall back to settings
-        bot_enable = self._bot_config['enable'] if self._bot_config else settings.bot_enable
-        bot_count = self._bot_config['count'] if self._bot_config else settings.bot_count
-        
+        bot_enable = (
+            self._bot_config["enable"] if self._bot_config else settings.bot_enable
+        )
+        bot_count = (
+            self._bot_config["count"] if self._bot_config else settings.bot_count
+        )
+
         if bot_enable:
             max_clients = self.nplayers_threshold + bot_count
             self.logger.debug(f"Setting maximum number of clients to {max_clients}")
@@ -238,7 +242,6 @@ class Server:
         """Handle map initialization event."""
         self.logger.info("Map initialized - processing state transitions")
 
-        # Add bots if they haven't been added yet and are enabled
         if not self._bots_added and self._should_add_bots():
             self._add_bots_to_server()
             self._bots_added = True
@@ -340,26 +343,31 @@ class Server:
     def _should_add_bots(self):
         """Check if bots should be added based on configuration."""
         if self._bot_config:
-            return self._bot_config['enable'] and self._bot_config['count'] > 0
+            return self._bot_config["enable"] and self._bot_config["count"] > 0
         else:
             return settings.bot_enable and settings.bot_count > 0
 
     def _add_bots_to_server(self):
         """Add bots to the server using current configuration."""
         if self._bot_config:
-            bot_count = self._bot_config['count']
-            bot_difficulty = self._bot_config['difficulty']
-            bot_names = self._bot_config['names']
+            bot_count = self._bot_config["count"]
+            bot_difficulty = self._bot_config["difficulty"]
+            bot_names = self._bot_config["names"]
         else:
             bot_count = settings.bot_count
             bot_difficulty = settings.bot_difficulty
-            bot_names = settings.bot_names if settings.bot_names[0] else ["Sarge", "Bones", "Slash", "Grunt", "Major", "Ranger"]
+            bot_names = (
+                settings.bot_names
+                if settings.bot_names[0]
+                else ["Sarge", "Bones", "Slash", "Grunt", "Major", "Ranger"]
+            )
 
         self.logger.info(f"Adding {bot_count} bots before warmup...")
         self.add_bots(bot_count, bot_difficulty, bot_names)
-        
+
         # Give time for bots to join
         import time
+
         time.sleep(2)
 
     def _apply_latency_rules(self):
@@ -367,7 +375,9 @@ class Server:
         latency_map = self.client_manager.get_latency_map()
         if latency_map:
             NetworkUtils.apply_latency_rules(latency_map, self._interface)
-            self.logger.info(f"Applied latency rules to {len(latency_map)} clients on interface {self._interface}")
+            self.logger.info(
+                f"Applied latency rules to {len(latency_map)} clients on interface {self._interface}"
+            )
 
     def _rotate_latencies(self):
         """Rotate latency assignments for the next round."""

@@ -18,6 +18,12 @@ python obs_test.py [--host HOST] [--port PORT] [--password PASSWORD]
 import asyncio
 import logging
 import argparse
+import sys
+import os
+
+# Add parent directory to path for imports
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from core.obs_controller import OBSWebSocketClient
 
 

@@ -26,15 +26,21 @@ class OBSWebSocketClient:
         """Connect to OBS WebSocket server."""
         try:
             uri = f"ws://{self.host}:{self.port}"
-            self.websocket = await websockets.connect(uri, subprotocols=["obswebsocket.json"])
-            self.logger.info(f"Connected to OBS WebSocket at {uri}")
+            # Try connection without subprotocol first (more compatible)
+            try:
+                self.websocket = await websockets.connect(uri)
+                self.logger.info(f"Connected to OBS WebSocket at {uri} (no subprotocol)")
+            except Exception:
+                # Fallback to subprotocol if needed
+                self.websocket = await websockets.connect(uri, subprotocols=["obswebsocket"])
+                self.logger.info(f"Connected to OBS WebSocket at {uri} (with subprotocol)")
             
-            # Wait for Hello message
-            hello_message = await self.websocket.recv()
+            # Wait for Hello message with timeout
+            hello_message = await asyncio.wait_for(self.websocket.recv(), timeout=10.0)
             hello_data = json.loads(hello_message)
             
             if hello_data["op"] != 0:  # OpCode 0 = Hello
-                raise Exception("Expected Hello message")
+                raise Exception(f"Expected Hello message, got op code {hello_data['op']}")
                 
             self.logger.info(f"OBS Version: {hello_data['d']['obsStudioVersion']}")
             self.logger.info(f"WebSocket Version: {hello_data['d']['obsWebSocketVersion']}")
@@ -42,12 +48,12 @@ class OBSWebSocketClient:
             # Send Identify message
             await self._identify(hello_data["d"])
             
-            # Wait for Identified message
-            identified_message = await self.websocket.recv()
+            # Wait for Identified message with timeout
+            identified_message = await asyncio.wait_for(self.websocket.recv(), timeout=10.0)
             identified_data = json.loads(identified_message)
             
             if identified_data["op"] != 2:  # OpCode 2 = Identified
-                raise Exception("Expected Identified message")
+                raise Exception(f"Expected Identified message, got op code {identified_data['op']}")
                 
             self.logger.info("Successfully identified with OBS WebSocket")
             return True
@@ -111,9 +117,16 @@ class OBSWebSocketClient:
             
         await self.websocket.send(json.dumps(request_message))
         
-        # Wait for response
+        # Wait for response with timeout
+        timeout_seconds = 10.0
+        start_time = asyncio.get_event_loop().time()
+        
         while True:
-            response_message = await self.websocket.recv()
+            elapsed = asyncio.get_event_loop().time() - start_time
+            if elapsed > timeout_seconds:
+                raise Exception(f"Request timeout after {timeout_seconds}s")
+                
+            response_message = await asyncio.wait_for(self.websocket.recv(), timeout=timeout_seconds - elapsed)
             response_data = json.loads(response_message)
             
             if response_data["op"] == 7:  # OpCode 7 = RequestResponse

@@ -67,9 +67,13 @@ class OBSManager:
                 
         except asyncio.TimeoutError:
             self.logger.warning(f"OBS connection timeout for {client_ip} ({self.connection_timeout}s)")
+            self.logger.warning(f"Check if OBS is running at {client_ip}:{port} with WebSocket enabled")
+            return False
+        except ConnectionRefusedError:
+            self.logger.warning(f"Connection refused by {client_ip}:{port} - OBS WebSocket not enabled or not running")
             return False
         except Exception as e:
-            self.logger.error(f"OBS connection error for {client_ip}: {e}")
+            self.logger.error(f"OBS connection error for {client_ip}: {e}", exc_info=True)
             return False
     
     async def connect_all_clients(self, client_ips: List[str], 
