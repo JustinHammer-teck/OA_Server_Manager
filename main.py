@@ -59,11 +59,23 @@ def run_async_loop():
     # Set the loop in the server
     server.set_async_loop(async_loop)
 
+    def exception_handler(loop, context):
+        """Handle unhandled exceptions in the async loop."""
+        exception = context.get('exception')
+        if exception:
+            logger.error(f"Unhandled exception in async loop: {exception}", exc_info=True)
+        else:
+            logger.error(f"Async loop error: {context['message']}")
+
+    async_loop.set_exception_handler(exception_handler)
+
     try:
+        logger.info("Starting async event loop")
         async_loop.run_forever()
     except Exception as e:
-        logger.error(f"Async loop error: {e}")
+        logger.error(f"Fatal async loop error: {e}", exc_info=True)
     finally:
+        logger.info("Async event loop closing")
         async_loop.close()
 
 
