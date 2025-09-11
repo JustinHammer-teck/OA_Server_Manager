@@ -16,15 +16,26 @@ This is an OpenArena (OA) game server management system designed for network lat
 ├── OBS_WEBSOCKET.md
 ├── README.md
 ├── core
+│   ├── __init__.py
+│   ├── bot_manager.py
 │   ├── client_manager.py
 │   ├── display_utils.py
+│   ├── game_config_manager.py
 │   ├── game_state_manager.py
+│   ├── latency_manager.py
 │   ├── message_processor.py
 │   ├── network_utils.py
+│   ├── obs_connection_manager.py
 │   ├── obs_controller.py
 │   ├── obs_manager.py
 │   ├── server.py
+│   ├── server.py.bak
 │   └── settings.py
+├── tests
+│   ├── README.md
+│   ├── __init__.py
+│   ├── obs_test.py
+│   └── test_obs_connection.py
 ├── flake.lock
 ├── flake.nix
 ├── main.py
@@ -37,10 +48,11 @@ This is an OpenArena (OA) game server management system designed for network lat
 
 ## Refactoring Goals
 
-### Current State
+### Current State ✅ **REFACTORING COMPLETE**
 - **`server_script.py`**: **REFERENCE ONLY** - Legacy monolithic procedural script (438 lines) - DO NOT MODIFY, use as source for refactoring
-- **`core/`**: Partially refactored modular components (Server, NetworkUtils, settings)
-- **`main.py`**: New OOP entry point using the Server class
+- **`core/`**: **FULLY REFACTORED** modular architecture with specialized managers (1200+ lines total)
+- **`main.py`**: Enhanced OOP entry point with proper logging and cleanup
+- **`tests/`**: Test scripts for OBS WebSocket validation and functionality
 
 ### Target Architecture
 1. **Complete OOP Refactoring**: Convert all procedural logic to object-oriented design
@@ -377,34 +389,69 @@ sudo -v
    - ✅ Added performance metrics and scalability data
    - ✅ Included security considerations and research applications
 
-## **🎯 Current Status: OBS WEBSOCKET INTEGRATION COMPLETE**
-The system has been successfully enhanced from core refactoring to full OBS WebSocket integration with immediate connection capability. The server now features:
+## **🎯 Current Status: COMPLETE ARCHITECTURE REFACTORING**
+The system has been successfully refactored from a monolithic design to a clean, modular architecture with full OBS WebSocket integration and specialized component separation.
 
-### **✅ Complete OBS Integration Features:**
-- **Immediate Connection**: OBS connects when each client joins (no waiting)
-- **Real-time Feedback**: Instant connection status display with tables
-- **Asynchronous Operations**: Non-blocking OBS management in separate thread
-- **Per-match Recording**: Automatic recording start/stop for each match
-- **Graceful Handling**: Proper cleanup on client disconnect and server shutdown
-- **Mixed Connection States**: Handles partially connected scenarios during warmup
+### **✅ Complete Refactoring Features:**
+- **Modular Architecture**: Separated concerns into specialized managers
+- **Clean Server Core**: Focused only on process management and coordination
+- **OBS Connection Management**: Dedicated component for WebSocket operations
+- **Bot Management**: Isolated bot configuration and server integration
+- **Game Configuration**: Centralized OpenArena settings management
+- **Latency Management**: Specialized network simulation and rotation
+- **Immediate OBS Connection**: OBS connects when each client joins
+- **Automatic Client Kicks**: Failed OBS connections result in client removal
+- **Match-based Recording**: Automatic recording start/stop with fraglimit detection
 
-### **📊 Architecture Statistics:**
-- **Original**: 437-line procedural script
-- **Current**: 1000+ lines across 10 modular components
-- **Core Files**: 7 fully refactored components
-- **OBS Integration**: 3 new specialized classes
-- **Enhanced Files**: 2 components with OBS features
+### **📊 Refactored Architecture Statistics:**
+- **Original Monolithic**: 734-line server.py
+- **New Modular Design**: 1200+ lines across 12 specialized components
+- **Server Core Reduction**: 734 → 410 lines (44% smaller)
+- **New Specialized Managers**: 4 dedicated components (800+ lines)
+- **Enhanced Modularity**: Each component has single responsibility
+- **Improved Testability**: Individual managers can be tested independently
 
-### **Phase 4: Advanced Features** (Priority: Medium)
-1. **Enhanced LatencyManager** (`core/latency_manager.py`):
-   - Per-client latency configuration
-   - Match-based latency rotation
-   - Configuration templates for experiments
+## **🏗️ Refactored Architecture Components**
 
-2. **ExperimentController** (`core/experiment_controller.py`):
-   - Multi-match sequence management
-   - Automated experiment progression
-   - Data collection coordination
+### **Core Specialized Managers** (NEW)
+
+1. **`obs_connection_manager.py`** (240 lines)
+   - **Purpose**: Manages all OBS WebSocket connection operations
+   - **Features**: Immediate client connections, warmup batch connections, recording control
+   - **Integration**: Handles client kicks on OBS failure, async task management
+
+2. **`bot_manager.py`** (190 lines) 
+   - **Purpose**: Bot configuration and server integration management
+   - **Features**: Bot addition/removal, difficulty settings, state tracking
+   - **Integration**: Command-line argument processing, server setting initialization
+
+3. **`game_config_manager.py`** (180 lines)
+   - **Purpose**: OpenArena game settings and configuration management  
+   - **Features**: Capturelimit, warmup, timelimit, map control, startup configuration
+   - **Integration**: Runtime setting changes, startup argument generation
+
+4. **`latency_manager.py`** (210 lines)
+   - **Purpose**: Network latency simulation and rotation management
+   - **Features**: Latency rule application, rotation strategies, per-client assignments
+   - **Integration**: Linux traffic control integration, interface validation
+
+### **Enhanced Core Components**
+
+1. **`server.py`** (REFACTORED - 410 lines, 44% reduction)
+   - **Purpose**: Core server process management and component coordination
+   - **Focus**: Process lifecycle, command sending, message processing coordination
+   - **Integration**: Orchestrates all specialized managers, maintains clean separation
+
+### **Phase 4: Future Advanced Features** (Priority: Medium)
+1. **Enhanced Experiment Templates**:
+   - Pre-defined latency sequences for common research scenarios
+   - Multi-match experiment configuration profiles
+   - Automated data collection coordination
+
+2. **Advanced OBS Integration**:
+   - Scene switching based on match state
+   - Custom recording formats and settings
+   - Multi-stream coordination for different perspectives
 
 ### **Phase 5: Server Manager Latency Control** (Priority: High)
 1. **Server-side Latency Management Interface**:
@@ -424,19 +471,39 @@ The system has been successfully enhanced from core refactoring to full OBS WebS
 2. **WebSocket communication layer**
 3. **Recording synchronization**
 
-## Key Refactoring Patterns
+## **🔧 Key Improvements and Bug Fixes**
 
-### From Procedural to OOP
-- **Original**: Single 437-line script with global variables and functions
-- **Target**: Modular classes with clear responsibilities and dependency injection
-- **Benefits**: Better testability, maintainability, and extensibility
+### **Critical Bug Fixes**
+1. **Player Threshold Issue**: Fixed default from 7 to 2 players for warmup transition
+2. **OBS WebSocket Protocol**: Fixed subprotocol compatibility issues  
+3. **Connection Timeouts**: Added proper timeout handling for OBS connections
+4. **Client Kick Implementation**: Added automatic kick for failed OBS connections
+5. **Match End Detection**: Added fraglimit hit detection for OBS recording control
 
-### State Management
-- **Original**: Global `STATE` variable with enum
-- **Target**: Encapsulated state machine in `GameStateManager` class
-- **Events**: Client connections, map changes, timeouts trigger state transitions
+### **Configuration Enhancements**  
+1. **OpenArena Game Settings**: Added capturelimit, warmup time, and warmup enable controls
+2. **Bot Management**: Fixed bot count logic (--bots vs --add-bots confusion)
+3. **Environment Configuration**: Enhanced .env file with OBS and game settings
+4. **Command Line Arguments**: Clarified help text and examples for bot configuration
 
-### Message Processing
-- **Original**: Inline regex matching in main loop
-- **Target**: Dedicated `MessageProcessor` with event handlers
-- **Pattern**: Observer pattern for game event notifications
+### **Architectural Improvements**
+1. **Separation of Concerns**: Extracted 4 specialized managers from monolithic server
+2. **Clean Component Integration**: Each manager has single responsibility 
+3. **Async Task Management**: Proper OBS connection handling in separate thread
+4. **Error Handling**: Comprehensive exception handling and logging throughout
+5. **Resource Cleanup**: Proper disposal of network rules and OBS connections
+
+### **From Monolithic to Modular Architecture**
+- **Original**: Single 734-line server.py handling all responsibilities
+- **Current**: Clean 410-line server.py coordinating 4 specialized managers
+- **Benefits**: Better testability, maintainability, and independent feature development
+
+### **Enhanced State Management**
+- **Game State Machine**: Clean transitions (WAITING → WARMUP → RUNNING)
+- **Match Progression**: Automated sequencing with latency rotation
+- **OBS Integration**: Recording synchronized with match start/end events
+
+### **Improved Message Processing**
+- **Event-Driven Architecture**: Dedicated handlers for each message type
+- **Pattern Matching**: Robust regex patterns for server output parsing
+- **Real-time Feedback**: Immediate client status updates and OBS connection results

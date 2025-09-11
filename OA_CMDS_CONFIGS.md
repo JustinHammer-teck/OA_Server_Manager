@@ -219,6 +219,9 @@
 | writeconfig | save current configuration to file |
 | z_stats | display memory stats for Z-buffer etc |
 
+
+
+
 ### Where weapon numbers correspond as follows:
 
 1. Gauntlet
