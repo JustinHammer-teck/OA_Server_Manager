@@ -238,7 +238,7 @@ class Server:
 
         self.send_command("say Match ended! Recordings stopped.")
 
-        result = self.game_state_manager.handle_match_end_detected()
+        result = self.game_state_manager.handle_fraglimit_detected()
 
         if result and "actions" in result:
             actions = result["actions"]
@@ -251,10 +251,18 @@ class Server:
                 time.sleep(2)  # Brief delay
                 self.game_config_manager.restart_map()
                 self.logger.info("Match restarted")
+        
+        if result and result.get("experiment_finished"):
+            self.logger.info("Experiment completed after fraglimit hit")
 
     def _handle_game_initialization(self, parsed_message):
         """Handle game initialization event - waiting to see if warmup or match follows."""
         self.logger.info("Game Initialization detected - determining initialization type")
+        
+        # Track game initialization
+        result = self.game_state_manager.handle_game_initialization_detected()
+        if result and "actions" in result:
+            self.logger.debug("Game initialization tracked")
         
         self.send_command("say Game initializing...")
 
@@ -262,6 +270,11 @@ class Server:
         """Handle warmup state transition."""
         warmup_info = parsed_message.data.get("warmup_info", "")
         self.logger.info(f"Warmup phase started: {warmup_info}")
+
+        # Update game state to WARMUP
+        result = self.game_state_manager.handle_warmup_detected()
+        if result.get("state_changed"):
+            self.logger.info("Game state updated to WARMUP")
 
         if self.bot_manager.should_add_bots() and not self.bot_manager.are_bots_added():
             self.logger.info("Adding bots")
@@ -412,29 +425,3 @@ class Server:
             self.logger.error(f"Error in server loop: {e}", exc_info=True)
         finally:
             self.logger.info("Server loop ended")
-
-    async def cleanup_async(self):
-        """Clean up all async resources."""
-        try:
-            await self.obs_connection_manager.cleanup_all()
-            self.latency_manager.clear_latency_rules()
-            self.logger.info("Async cleanup completed")
-        except Exception as e:
-            self.logger.error(f"Error during async cleanup: {e}")
-
-    def get_obs_manager(self):
-        """Get OBS connection manager for external access."""
-        return self.obs_connection_manager
-
-    def get_bot_manager(self):
-        """Get bot manager for external access."""
-        return self.bot_manager
-
-    def get_game_config_manager(self):
-        """Get game configuration manager for external access."""
-        return self.game_config_manager
-
-    def get_latency_manager(self):
-        """Get latency manager for external access."""
-        return self.latency_manager
-
