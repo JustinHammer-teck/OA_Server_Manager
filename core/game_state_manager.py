@@ -21,6 +21,8 @@ class GameStateManager:
         self.max_rounds: int = len(settings.latencies) * settings.repeats
         self.send_command = send_command_callback
         self.logger = logging.getLogger(__name__)
+        
+        self.logger.info(f"GameStateManager initialized: latencies={settings.latencies}, repeats={settings.repeats}, max_rounds={self.max_rounds}")
 
     def handle_warmup_detected(self) -> dict:
         """React to server warmup message - purely reactive state tracking."""
@@ -48,10 +50,9 @@ class GameStateManager:
 
         if self.current_state == GameState.WARMUP:
             self.current_state = GameState.RUNNING
-            self.round_count = 1
             result["state_changed"] = True
             result["actions"].extend(["start_match_recording", "apply_latency"])
-            self.logger.info("State tracked: WARMUP -> RUNNING")
+            self.logger.info(f"State tracked: WARMUP -> RUNNING (starting round {self.round_count + 1})")
         else:
             self.logger.warning(f"Unexpected match start from state {self.current_state}")
 
@@ -76,15 +77,17 @@ class GameStateManager:
         }
 
         if self.current_state == GameState.RUNNING:
+            self.round_count += 1
+            
             if self.round_count >= self.max_rounds:
                 result["experiment_finished"] = True
                 self.logger.info(
-                    f"Experiment completed after {self.round_count} rounds"
+                    f"Experiment completed after {self.round_count} rounds (max: {self.max_rounds})"
                 )
             else:
                 result["round_completed"] = True
                 result["actions"].extend(["rotate_latency", "restart_match"])
-                self.logger.info(f"Round {self.round_count} completed, preparing next round")
+                self.logger.info(f"Round {self.round_count} completed, preparing round {self.round_count + 1} (max: {self.max_rounds})")
 
         return result
 
@@ -115,8 +118,13 @@ class GameStateManager:
 
     def get_round_info(self) -> dict:
         """Get current round information."""
+        if self.current_state == GameState.RUNNING:
+            current_round = self.round_count + 1  # Round in progress
+        else:
+            current_round = self.round_count  # Completed rounds
+            
         return {
-            "current_round": self.round_count,
+            "current_round": current_round,
             "max_rounds": self.max_rounds,
             "warmup_rounds": self.warmup_round_count,
             "state": self.current_state.name,
