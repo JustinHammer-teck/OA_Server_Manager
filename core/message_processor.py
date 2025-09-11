@@ -9,6 +9,7 @@ class MessageType(Enum):
     CLIENT_CONNECTING = "client_connecting"
     CLIENT_DISCONNECT = "client_disconnect"
     MAP_INITIALIZED = "map_initialized"
+    MATCH_END_FRAGLIMIT = "match_end_fraglimit"
     STATUS_LINE = "status_line"
     UNKNOWN = "unknown"
 
@@ -36,7 +37,8 @@ class MessageProcessor:
         self.patterns = {
             MessageType.CLIENT_CONNECTING: re.compile(r"^Client ([0-9]+) connecting with ([0-9]+) challenge ping$"),
             MessageType.CLIENT_DISCONNECT: re.compile(r"^ClientDisconnect: ([0-9]+)$"),
-            MessageType.MAP_INITIALIZED: re.compile(r"^AAS initialized\.$")
+            MessageType.MAP_INITIALIZED: re.compile(r"^AAS initialized\.$"),
+            MessageType.MATCH_END_FRAGLIMIT: re.compile(r"^Exit: Fraglimit hit\.$")
         }
         
         # Track status parsing state

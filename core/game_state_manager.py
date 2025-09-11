@@ -96,6 +96,32 @@ class GameStateManager:
         
         return result
     
+    def handle_match_end(self) -> dict:
+        """Handle match end event (fraglimit hit) and determine next actions."""
+        result = {
+            'state_changed': False,
+            'round_completed': False,
+            'experiment_finished': False,
+            'actions': []
+        }
+        
+        if self.current_state == GameState.RUNNING:
+            if self.round_count >= self.max_rounds:
+                # Experiment complete
+                result['experiment_finished'] = True
+                self.logger.info(f"Experiment completed after {self.round_count} rounds")
+            else:
+                # More rounds to go
+                self.round_count += 1
+                result['round_completed'] = True
+                result['actions'].append('rotate_latency')
+                result['actions'].append('restart_match')
+                
+                self.send_command(f"say Round {self.round_count}/{self.max_rounds} starting...")
+                self.logger.info(f"Round {self.round_count} starting after fraglimit")
+        
+        return result
+    
     def send_waiting_message(self, current_players: int, threshold: int) -> None:
         """Send waiting room message to players."""
         if self.current_state == GameState.WAITING:

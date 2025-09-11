@@ -193,6 +193,8 @@ class Server:
             self._handle_client_disconnect(parsed_message)
         elif parsed_message.message_type == MessageType.MAP_INITIALIZED:
             self._handle_map_initialized(parsed_message)
+        elif parsed_message.message_type == MessageType.MATCH_END_FRAGLIMIT:
+            self._handle_match_end_fraglimit(parsed_message)
         elif parsed_message.message_type == MessageType.STATUS_LINE:
             self._handle_status_line(parsed_message)
 
@@ -281,6 +283,35 @@ class Server:
                     await self.start_match_recording_async()
 
                 self._async_loop.create_task(restart_recording())
+
+    def _handle_match_end_fraglimit(self, parsed_message):
+        """Handle match end due to fraglimit hit."""
+        self.logger.info("Match ended - Fraglimit hit! Stopping OBS recordings...")
+        
+        # Stop all OBS recordings immediately
+        if self._async_loop:
+            self._async_loop.create_task(self.stop_match_recording_async())
+        
+        # Display match end notification
+        self.send_command("say Match ended! Recordings stopped.")
+        
+        # Transition game state
+        result = self.game_state_manager.handle_match_end()
+        
+        # Process any actions from state manager
+        if result and "actions" in result:
+            actions = result["actions"]
+            
+            if "rotate_latency" in actions:
+                self._rotate_latencies()
+                self.logger.info("Latency rotated for next match")
+            
+            if "restart_match" in actions:
+                # Brief delay before restarting
+                import time
+                time.sleep(2)
+                self.send_command("map_restart")
+                self.logger.info("Match restarted")
 
     def _handle_status_line(self, parsed_message):
         """Handle server status output."""
@@ -617,12 +648,14 @@ class Server:
                     self.client_manager, "CLIENT STATUS - OBS CONNECTION FAILED"
                 )
 
-                # Optional: Immediate kick for failed connections
-                # Uncomment if you want immediate kick behavior
-                # client_id = self.client_manager.get_client_id_by_ip(client_ip)
-                # if client_id:
-                #     self.send_command(f"kick {client_id}")
-                #     self.logger.info(f"Kicked client {client_id} immediately - OBS connection failed")
+                # Kick client for failed OBS connection
+                client_id = self.client_manager.get_client_id_by_ip(client_ip)
+                if client_id:
+                    self.send_command(f"kick {client_id}")
+                    self.send_command(f"say Client {client_id} kicked - OBS not available")
+                    self.logger.info(f"Kicked client {client_id} ({client_ip}) - OBS connection failed")
+                else:
+                    self.logger.warning(f"Could not find client ID for IP {client_ip} to kick")
 
             return connected
 

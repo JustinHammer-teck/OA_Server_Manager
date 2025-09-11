@@ -74,9 +74,10 @@ def parse_arguments():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python main.py --bots 6 --difficulty 3 --bot-names "Sarge,Bones,Slash"
-  python main.py --add-bots 2 --bot-difficulty 4
-  python main.py --no-bots
+  python main.py --bots 2 --difficulty 3                    # Exactly 2 bots
+  python main.py --add-bots 2 --bot-difficulty 4            # Default (4) + 2 = 6 bots
+  python main.py --bots 6 --bot-names "Sarge,Bones,Slash"   # 6 bots with specific names
+  python main.py --no-bots                                   # No bots
         """,
     )
 
@@ -85,7 +86,7 @@ Examples:
     bot_group.add_argument(
         "--bots",
         type=int,
-        help=f"Number of bots to add (default: {settings.bot_count})",
+        help=f"Total number of bots (default: {settings.bot_count})",
     )
     bot_group.add_argument(
         "--difficulty",
@@ -100,7 +101,7 @@ Examples:
         help=f"Comma-separated bot names (default: {','.join(settings.bot_names) if settings.bot_names[0] else 'Sarge,Bones,Slash,Grunt,Major'})",
     )
     bot_group.add_argument(
-        "--add-bots", type=int, help="Add additional bots to default count"
+        "--add-bots", type=int, help=f"Add additional bots to default count ({settings.bot_count})"
     )
     bot_group.add_argument(
         "--no-bots", action="store_true", help="Disable bots completely"
