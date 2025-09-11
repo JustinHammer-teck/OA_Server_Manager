@@ -7,11 +7,11 @@ from typing import Optional
 
 import core.settings as settings
 from core.client_manager import ClientManager
+from core.display_utils import DisplayUtils
 from core.game_state_manager import GameStateManager
 from core.message_processor import MessageProcessor, MessageType
 from core.network_utils import NetworkUtils
 from core.obs_manager import OBSManager
-from core.display_utils import DisplayUtils
 
 
 class Server:
@@ -34,15 +34,22 @@ class Server:
         self.client_manager = ClientManager()
         self.game_state_manager = GameStateManager(self.send_command)
         self.message_processor = MessageProcessor(self.send_command)
-        
+
         # OBS management
-        obs_port = int(settings.obs_port) if hasattr(settings, 'obs_port') else 4455
-        obs_password = settings.obs_password if hasattr(settings, 'obs_password') else None
-        obs_timeout = int(settings.obs_connection_timeout) if hasattr(settings, 'obs_connection_timeout') else 30
-        self.obs_manager = OBSManager(obs_port=obs_port, obs_password=obs_password, 
-                                       connection_timeout=obs_timeout)
+        obs_port = int(settings.obs_port) if hasattr(settings, "obs_port") else 4455
+        obs_password = (
+            settings.obs_password if hasattr(settings, "obs_password") else None
+        )
+        obs_timeout = (
+            int(settings.obs_connection_timeout)
+            if hasattr(settings, "obs_connection_timeout")
+            else 30
+        )
+        self.obs_manager = OBSManager(
+            obs_port=obs_port, obs_password=obs_password, connection_timeout=obs_timeout
+        )
         self.display_utils = DisplayUtils()
-        
+
         # Async support
         self._async_loop: Optional[asyncio.AbstractEventLoop] = None
         self._obs_task: Optional[asyncio.Task] = None
@@ -72,8 +79,6 @@ class Server:
                 "Welcome To ASTRID lab",
                 "+exec",
                 "t_server.cfg",
-                "+map",
-                "aggressor",
             ],
             stdout=PIPE,
             stdin=PIPE,
@@ -173,6 +178,18 @@ class Server:
     def _handle_client_disconnect(self, parsed_message):
         """Handle client disconnection event."""
         client_id = parsed_message.data["client_id"]
+
+        # Get IP before removing client
+        client_ip = self.client_manager.get_client_ip(client_id)
+
+        # If it was a human client with OBS connection, disconnect OBS
+        if client_ip and self.obs_manager.is_client_connected(client_ip):
+            if self._async_loop:
+                self._async_loop.create_task(
+                    self._disconnect_client_obs_async(client_ip)
+                )
+
+        # Remove from client manager
         self.client_manager.remove_client(client_id)
 
         # Check if we need to update game state based on player count
@@ -185,6 +202,12 @@ class Server:
         if self.game_state_manager.get_current_state().name == "WAITING":
             self.game_state_manager.send_waiting_message(
                 current_players, self.nplayers_threshold
+            )
+
+        # Display updated client table
+        if current_players > 0:
+            self.display_utils.display_client_table(
+                self.client_manager, "CLIENT STATUS AFTER DISCONNECTION"
             )
 
     def _handle_map_initialized(self, parsed_message):
@@ -207,7 +230,7 @@ class Server:
         if self.game_state_manager.should_start_match_recording():
             if self._async_loop:
                 self._async_loop.create_task(self.start_match_recording_async())
-        
+
         # Apply actions based on state manager response
         if "apply_latency" in result.get("actions", []):
             self._apply_latency_rules()
@@ -215,11 +238,16 @@ class Server:
         if "rotate_latency" in result.get("actions", []):
             self._rotate_latencies()
             # Stop and restart recording for new match
-            if self._async_loop and self.game_state_manager.should_stop_match_recording():
+            if (
+                self._async_loop
+                and self.game_state_manager.should_stop_match_recording()
+            ):
+
                 async def restart_recording():
                     await self.stop_match_recording_async()
                     await asyncio.sleep(2)  # Brief pause between recordings
                     await self.start_match_recording_async()
+
                 self._async_loop.create_task(restart_recording())
 
     def _handle_status_line(self, parsed_message):
@@ -235,6 +263,8 @@ class Server:
 
     def _process_discovered_clients(self, client_ips):
         """Process newly discovered client IPs and update game state."""
+        newly_added_humans = []
+
         # Add clients to client manager with latency assignment
         for i, ip in enumerate(client_ips):
             # Use a placeholder client ID (in real scenario, we'd track this better)
@@ -242,7 +272,19 @@ class Server:
             latency = settings.latencies[
                 len(self.client_manager.ip_latency_map) % len(settings.latencies)
             ]
-            self.client_manager.add_client(client_id, ip, latency)
+
+            # Check if this IP is already known
+            if ip not in self.client_manager.ip_latency_map:
+                self.client_manager.add_client(client_id, ip, latency)
+                newly_added_humans.append(ip)
+                self.logger.info(f"New human client discovered: {ip}")
+            else:
+                self.logger.debug(f"Client IP {ip} already known")
+
+        # Immediately attempt OBS connections for new human clients
+        if newly_added_humans and self._async_loop:
+            for ip in newly_added_humans:
+                self._async_loop.create_task(self._connect_single_client_obs_async(ip))
 
         current_players = self.client_manager.get_client_count()
         self.logger.info(f"Updated player count: {current_players}")
@@ -256,10 +298,10 @@ class Server:
     def _start_warmup_phase(self):
         """Start the warmup phase with OBS connections."""
         self.game_state_manager.transition_to_warmup()
-        
+
         # Display current client status
         self.display_utils.display_client_table(self.client_manager)
-        
+
         # Schedule OBS connection attempts for human clients
         if self._async_loop:
             self._obs_task = self._async_loop.create_task(
@@ -316,122 +358,228 @@ class Server:
             # Clean up async tasks
             if self._obs_task and not self._obs_task.done():
                 self._obs_task.cancel()
-    
+
     async def _handle_obs_connections_async(self):
         """Handle OBS connections asynchronously during warmup."""
         try:
             # Get human client IPs
             human_ips = self.client_manager.get_human_clients()
-            
+
             if not human_ips:
-                self.logger.info("No human clients to connect OBS")
+                self.logger.info("No human clients for warmup OBS check")
                 return
-            
-            self.logger.info(f"Attempting OBS connections for {len(human_ips)} human clients")
+
+            # Check which clients are already connected vs need connection
+            already_connected = []
+            need_connection = []
+
+            for ip in human_ips:
+                if self.obs_manager.is_client_connected(ip):
+                    already_connected.append(ip)
+                else:
+                    obs_status = self.client_manager.get_obs_status(ip)
+                    if obs_status is None or obs_status is False:
+                        need_connection.append(ip)
+
+            self.logger.info(
+                f"OBS Status - Already connected: {len(already_connected)}, Need connection: {len(need_connection)}"
+            )
+
             self.display_utils.display_warmup_status(
                 self.client_manager.get_human_count(),
                 self.nplayers_threshold,
-                obs_connecting=True
+                obs_connecting=(len(need_connection) > 0),
             )
-            
-            # Attempt connections to all human clients
-            connection_results = await self.obs_manager.connect_all_clients(human_ips)
-            
-            # Update client manager with OBS status
-            for ip, connected in connection_results.items():
-                self.client_manager.set_obs_status(ip, connected)
-            
-            # Display connection results
-            self.display_utils.display_obs_connection_results(connection_results)
-            
+
+            connection_results = {}
+
+            # Only attempt connections for clients that need it
+            if need_connection:
+                self.logger.info(
+                    f"Attempting OBS connections for {len(need_connection)} remaining clients"
+                )
+                connection_results = await self.obs_manager.connect_all_clients(
+                    need_connection
+                )
+
+                # Update client manager with OBS status
+                for ip, connected in connection_results.items():
+                    self.client_manager.set_obs_status(ip, connected)
+
+            # Add already connected clients to results
+            for ip in already_connected:
+                connection_results[ip] = True
+
+            # Display connection results (only if there were new attempts)
+            if need_connection:
+                self.display_utils.display_obs_connection_results(connection_results)
+
+            # Show current client status table
+            self.display_utils.display_client_table(
+                self.client_manager, "WARMUP PHASE - CLIENT STATUS"
+            )
+
             # Kick clients with failed OBS connections
-            for ip, connected in connection_results.items():
-                if not connected:
-                    client_id = self.client_manager.get_client_id_by_ip(ip)
-                    if client_id:
-                        self.send_command(f"kick {client_id}")
-                        self.logger.info(f"Kicked client {client_id} (IP: {ip}) - OBS connection failed")
-                        self.client_manager.remove_client(client_id)
-            
+            failed_clients = [
+                ip for ip, connected in connection_results.items() if not connected
+            ]
+            for ip in failed_clients:
+                client_id = self.client_manager.get_client_id_by_ip(ip)
+                if client_id:
+                    self.send_command(f"kick {client_id}")
+                    self.logger.info(
+                        f"Kicked client {client_id} (IP: {ip}) - OBS connection failed"
+                    )
+                    self.client_manager.remove_client(client_id)
+
             # Check if we have any successful connections
-            successful_connections = [ip for ip, connected in connection_results.items() if connected]
-            
+            successful_connections = [
+                ip for ip, connected in connection_results.items() if connected
+            ]
+
             if successful_connections:
                 # Start recording for connected clients
-                self.logger.info("Starting recording for connected OBS clients")
+                self.logger.info(
+                    f"Starting recording for {len(successful_connections)} connected OBS clients"
+                )
                 recording_results = await self.obs_manager.start_all_recordings()
-                
+
                 # Display recording status
                 status_dict = await self.obs_manager.get_all_recording_status()
                 self.display_utils.display_recording_status(status_dict)
-                
+
                 # Check if ready to proceed
-                if self.game_state_manager.check_obs_ready(self.obs_manager, self.client_manager):
+                if self.game_state_manager.check_obs_ready(
+                    self.obs_manager, self.client_manager
+                ):
                     self.logger.info("All OBS connections ready, warmup can proceed")
                     self.send_command("say OBS recording started for all clients!")
             else:
-                self.logger.warning("No successful OBS connections, experiment may not proceed")
+                self.logger.warning(
+                    "No successful OBS connections, experiment may not proceed"
+                )
                 self.send_command("say WARNING: No OBS connections established!")
-                
+
         except Exception as e:
-            self.logger.error(f"Error handling OBS connections: {e}", exc_info=True)
-    
+            self.logger.error(
+                f"Error handling OBS connections during warmup: {e}", exc_info=True
+            )
+
     async def start_match_recording_async(self):
         """Start recording for all connected OBS clients at match start."""
         try:
             if not self.obs_manager.get_connected_clients():
                 self.logger.warning("No OBS clients connected for recording")
                 return
-            
+
             round_info = self.game_state_manager.get_round_info()
             self.display_utils.display_match_start(
-                round_info['current_round'],
-                round_info['max_rounds']
+                round_info["current_round"], round_info["max_rounds"]
             )
-            
-            self.logger.info(f"Starting recording for match {round_info['current_round']}")
+
+            self.logger.info(
+                f"Starting recording for match {round_info['current_round']}"
+            )
             recording_results = await self.obs_manager.start_all_recordings()
-            
+
             # Log results
             for ip, success in recording_results.items():
                 if success:
                     self.logger.info(f"Recording started for {ip}")
                 else:
                     self.logger.warning(f"Failed to start recording for {ip}")
-                    
+
         except Exception as e:
             self.logger.error(f"Error starting match recording: {e}", exc_info=True)
-    
+
     async def stop_match_recording_async(self):
         """Stop recording for all connected OBS clients at match end."""
         try:
             if not self.obs_manager.get_connected_clients():
                 return
-            
+
             round_info = self.game_state_manager.get_round_info()
             self.display_utils.display_match_end(
-                round_info['current_round'],
-                round_info['max_rounds']
+                round_info["current_round"], round_info["max_rounds"]
             )
-            
-            self.logger.info(f"Stopping recording for match {round_info['current_round']}")
+
+            self.logger.info(
+                f"Stopping recording for match {round_info['current_round']}"
+            )
             recording_results = await self.obs_manager.stop_all_recordings()
-            
+
             # Log results
             for ip, success in recording_results.items():
                 if success:
                     self.logger.info(f"Recording stopped for {ip}")
                 else:
                     self.logger.warning(f"Failed to stop recording for {ip}")
-                    
+
         except Exception as e:
             self.logger.error(f"Error stopping match recording: {e}", exc_info=True)
-    
+
     def set_async_loop(self, loop: asyncio.AbstractEventLoop):
         """Set the async event loop for OBS operations."""
         self._async_loop = loop
         self.logger.debug("Async event loop set for OBS operations")
-    
+
+    async def _connect_single_client_obs_async(self, client_ip: str):
+        """Connect to a single client's OBS instance immediately upon connection."""
+        try:
+            self.logger.info(f"Attempting immediate OBS connection for {client_ip}")
+
+            # Attempt connection to this specific client
+            connected = await self.obs_manager.connect_client_obs(client_ip)
+
+            # Update client manager with OBS status
+            self.client_manager.set_obs_status(client_ip, connected)
+
+            if connected:
+                self.logger.info(f"✓ OBS connected for client {client_ip}")
+                self.send_command(f"say OBS connected for {client_ip}")
+
+                # Display updated client table
+                print(f"\n[OBS CONNECTION SUCCESS] {client_ip}")
+                self.display_utils.display_client_table(
+                    self.client_manager, "UPDATED CLIENT STATUS"
+                )
+            else:
+                self.logger.warning(f"✗ OBS connection failed for client {client_ip}")
+                self.send_command(
+                    f"say OBS connection failed for {client_ip} - may be kicked"
+                )
+
+                print(f"\n[OBS CONNECTION FAILED] {client_ip}")
+                # Still show table to display the failed status
+                self.display_utils.display_client_table(
+                    self.client_manager, "CLIENT STATUS - OBS CONNECTION FAILED"
+                )
+
+                # Optional: Immediate kick for failed connections
+                # Uncomment if you want immediate kick behavior
+                # client_id = self.client_manager.get_client_id_by_ip(client_ip)
+                # if client_id:
+                #     self.send_command(f"kick {client_id}")
+                #     self.logger.info(f"Kicked client {client_id} immediately - OBS connection failed")
+
+            return connected
+
+        except Exception as e:
+            self.logger.error(
+                f"Error connecting to OBS for {client_ip}: {e}", exc_info=True
+            )
+            return False
+
+    async def _disconnect_client_obs_async(self, client_ip: str):
+        """Disconnect a single client's OBS connection."""
+        try:
+            await self.obs_manager.disconnect_client(client_ip)
+            self.logger.info(
+                f"OBS connection closed for disconnected client {client_ip}"
+            )
+        except Exception as e:
+            self.logger.error(f"Error disconnecting OBS for {client_ip}: {e}")
+
     async def cleanup_obs_async(self):
         """Clean up all OBS connections."""
         try:

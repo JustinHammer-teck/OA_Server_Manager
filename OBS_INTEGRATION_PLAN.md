@@ -61,6 +61,11 @@ This document outlines the integration plan for adding OBS (Open Broadcaster Sof
 5. **Match Start** → Start all recordings → Begin match
 6. **Match End** → Stop all recordings → Rotate to next match
 
+### References Docs
+
+@OA_CMDS_CONFIGS.md
+@OBS_WEBSOCKET.md
+
 ---
 
 ## 2. Implementation Components
