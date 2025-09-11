@@ -20,6 +20,7 @@ bot_difficulty = int(os.getenv("BOT_DIFFICULTY", 1))
 bot_names = os.getenv("BOT_NAMES", "").split(",")
 
 latencies = [int(lat) for lat in os.getenv("LATENCIES", "200").split(",")]
+enable_latency_control = get_bool_env("ENABLE_LATENCY_CONTROL", False)
 
 # OpenArena Game Configuration
 flaglimit = int(os.getenv("FLAGLIMIT", 8))

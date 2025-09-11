@@ -271,7 +271,6 @@ class Server:
         warmup_info = parsed_message.data.get("warmup_info", "")
         self.logger.info(f"Warmup phase started: {warmup_info}")
 
-        # Update game state to WARMUP
         result = self.game_state_manager.handle_warmup_detected()
         if result.get("state_changed"):
             self.logger.info("Game state updated to WARMUP")
@@ -318,7 +317,10 @@ class Server:
                         )
                 
                 if "apply_latency" in actions:
-                    self.latency_manager.apply_latency_rules(self.client_manager)
+                    if self.latency_manager.is_enabled():
+                        self.latency_manager.apply_latency_rules(self.client_manager)
+                    else:
+                        self.logger.info("Latency control disabled, skipping latency application")
             
             self.send_command("say Match is starting!")
             
@@ -347,7 +349,6 @@ class Server:
             client_ip = client_data["ip"]
             
             if client_type == "HUMAN" and client_ip:
-                # Assign latency for human clients
                 latency = settings.latencies[
                     len(self.client_manager.ip_latency_map) % len(settings.latencies)
                 ]
@@ -366,7 +367,6 @@ class Server:
                     self.logger.debug(f"[CLIENT] HUMAN client IP {client_ip} already tracked")
                     
             elif client_type == "BOT":
-                # Add bot client (no IP needed)
                 self.client_manager.add_client(
                     client_id=client_id,
                     ip=None,
