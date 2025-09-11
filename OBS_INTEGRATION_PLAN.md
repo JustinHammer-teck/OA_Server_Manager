@@ -52,14 +52,15 @@ This document outlines the integration plan for adding OBS (Open Broadcaster Sof
                                           └───────────────────┘
 ```
 
-### Data Flow
+### Data Flow (Updated with Immediate Connection)
 
-1. **Client Connection** → Server detects human player → ClientManager tracks
-2. **Threshold Reached** → GameStateManager transitions to WARMUP
-3. **Warmup Phase** → OBSManager attempts connections → Display status
-4. **Connection Results** → Kick failed clients OR proceed to recording
-5. **Match Start** → Start all recordings → Begin match
-6. **Match End** → Stop all recordings → Rotate to next match
+1. **Client Connection** → Server detects human player → **Immediate OBS connection attempt**
+2. **OBS Connection Result** → Display status table → Update client manager
+3. **Threshold Reached** → GameStateManager transitions to WARMUP
+4. **Warmup Phase** → Check already connected → Connect remaining clients only
+5. **Connection Results** → Kick failed clients OR proceed to recording
+6. **Match Start** → Start all recordings → Begin match
+7. **Match End** → Stop all recordings → Rotate to next match
 
 ### References Docs
 
@@ -181,51 +182,126 @@ class GameStateManager:
 
 ---
 
-## 3. Workflow Implementation
+## 3. Immediate OBS Connection Feature
 
-### 3.1 Warmup Phase Workflow
+### 3.1 Feature Overview
+
+**Key Enhancement:** OBS connections are now established immediately when each client connects to the server, rather than waiting for the warmup phase.
+
+### 3.2 Implementation Details
+
+**New Connection Flow:**
+```python
+def _process_discovered_clients(self, client_ips):
+    newly_added_humans = []
+    
+    for ip in client_ips:
+        if ip not in self.client_manager.ip_latency_map:
+            # Add new human client
+            self.client_manager.add_client(client_id, ip, latency)
+            newly_added_humans.append(ip)
+    
+    # Immediately attempt OBS connections for new clients
+    if newly_added_humans and self._async_loop:
+        for ip in newly_added_humans:
+            self._async_loop.create_task(
+                self._connect_single_client_obs_async(ip)
+            )
+```
+
+**Per-Client Connection Method:**
+```python
+async def _connect_single_client_obs_async(self, client_ip: str):
+    # Attempt connection to this specific client
+    connected = await self.obs_manager.connect_client_obs(client_ip)
+    
+    # Update client manager with OBS status
+    self.client_manager.set_obs_status(client_ip, connected)
+    
+    # Display immediate feedback
+    if connected:
+        print(f"\n[OBS CONNECTION SUCCESS] {client_ip}")
+        self.display_utils.display_client_table(self.client_manager)
+    else:
+        print(f"\n[OBS CONNECTION FAILED] {client_ip}")
+```
+
+### 3.3 Benefits
+
+✅ **Immediate Feedback** - Users know instantly if OBS connection works  
+✅ **No Waiting** - OBS connects as soon as user joins  
+✅ **Efficient Warmup** - Skips already connected clients  
+✅ **Better UX** - Real-time status updates and notifications  
+✅ **Early Detection** - Problems identified before warmup phase
+
+### 3.4 Modified Warmup Behavior
+
+The warmup phase now:
+1. **Checks existing connections** - Identifies already connected vs. failed clients
+2. **Only connects remaining** - Attempts connection for clients not yet connected
+3. **Shows comprehensive status** - Displays table of all client states
+4. **Handles mixed scenarios** - Some connected, some failed, some new
+
+---
+
+## 4. Workflow Implementation
+
+### 4.1 Updated Warmup Phase Workflow
 
 ```python
-# Pseudo-code for warmup phase
+# Updated pseudo-code for warmup phase (with immediate connections)
 async def handle_warmup_phase():
     # 1. Check player threshold (3 humans)
     if human_count >= 3:
-        # 2. Add 2 easy bots
-        server.add_bots(num_bots=2, difficulty=1, names=["Bot1", "Bot2"])
-        
-        # 3. Get human client IPs
+        # 2. Get human client IPs
         human_ips = client_manager.get_human_clients()
         
-        # 4. Attempt OBS connections (async)
-        print("Connecting to OBS instances...")
-        connection_results = await obs_manager.connect_all_clients(
-            human_ips, timeout=30
-        )
+        # 3. Check which clients are already connected (NEW BEHAVIOR)
+        already_connected = []
+        need_connection = []
         
-        # 5. Update client manager with OBS status
-        for ip, connected in connection_results.items():
-            client_manager.set_obs_status(ip, connected)
+        for ip in human_ips:
+            if obs_manager.is_client_connected(ip):
+                already_connected.append(ip)
+            else:
+                need_connection.append(ip)
         
-        # 6. Display client table
+        print(f"OBS Status - Already connected: {len(already_connected)}")
+        print(f"Need connection: {len(need_connection)}")
+        
+        # 4. Only attempt connections for remaining clients (OPTIMIZED)
+        connection_results = {}
+        if need_connection:
+            print(f"Connecting to {len(need_connection)} remaining OBS instances...")
+            connection_results = await obs_manager.connect_all_clients(
+                need_connection, timeout=30
+            )
+        
+        # Add already connected clients to results
+        for ip in already_connected:
+            connection_results[ip] = True
+        
+        # 5. Display comprehensive client table
         display_client_table(client_manager.get_client_info_table())
         
-        # 7. Handle failed connections
-        for ip, connected in connection_results.items():
-            if not connected:
-                client_id = client_manager.get_client_id_by_ip(ip)
-                server.send_command(f"kick {client_id}")
-                logger.debug(f"Kicked client {ip}: OBS connection failed")
+        # 6. Handle failed connections
+        failed_clients = [ip for ip, connected in connection_results.items() if not connected]
+        for ip in failed_clients:
+            client_id = client_manager.get_client_id_by_ip(ip)
+            server.send_command(f"kick {client_id}")
+            logger.info(f"Kicked client {ip}: OBS connection failed")
         
-        # 8. Start recordings for connected clients
-        if any(connection_results.values()):
+        # 7. Start recordings for all connected clients
+        successful_connections = [ip for ip, connected in connection_results.items() if connected]
+        if successful_connections:
             recording_results = await obs_manager.start_all_recordings()
             display_recording_status(recording_results)
             
-        # 9. Proceed to match
+        # 8. Proceed to match
         game_state_manager.transition_to_running()
 ```
 
-### 3.2 Match Recording Workflow
+### 4.2 Match Recording Workflow
 
 ```python
 # Per-match recording control
@@ -247,9 +323,40 @@ async def handle_match_lifecycle():
 
 ---
 
-## 4. Display Formatting
+## 5. Display Formatting
 
-### 4.1 Client Information Table (Warmup)
+### 5.1 Immediate Connection Feedback (NEW)
+
+**When a client connects and OBS connection succeeds:**
+```
+[OBS CONNECTION SUCCESS] 192.168.1.100
+
+===============================================================================
+                             UPDATED CLIENT STATUS
+===============================================================================
+┌────────────┬───────────────┬────────┬─────────┬─────────────┬──────────┐
+│ Client ID  │ IP Address    │ Type   │ Latency │ OBS Status  │ Name     │
+├────────────┼───────────────┼────────┼─────────┼─────────────┼──────────┤
+│ 101        │ 192.168.1.100 │ HUMAN  │ 200ms   │ Connected   │ Player1  │
+└────────────┴───────────────┴────────┴─────────┴─────────────┴──────────┘
+```
+
+**When a client connects and OBS connection fails:**
+```
+[OBS CONNECTION FAILED] 192.168.1.101
+
+===============================================================================
+                      CLIENT STATUS - OBS CONNECTION FAILED
+===============================================================================
+┌────────────┬───────────────┬────────┬─────────┬─────────────┬──────────┐
+│ Client ID  │ IP Address    │ Type   │ Latency │ OBS Status  │ Name     │
+├────────────┼───────────────┼────────┼─────────┼─────────────┼──────────┤
+│ 101        │ 192.168.1.100 │ HUMAN  │ 200ms   │ Connected   │ Player1  │
+│ 102        │ 192.168.1.101 │ HUMAN  │ 300ms   │ Not Connected│ Player2 │
+└────────────┴───────────────┴────────┴─────────┴─────────────┴──────────┘
+```
+
+### 5.2 Client Information Table (Warmup)
 
 ```
 ╔════════════╦═══════════════╦════════╦═════════╦═══════════╗
@@ -263,7 +370,7 @@ async def handle_match_lifecycle():
 ╚════════════╩═══════════════╩════════╩═════════╩═══════════╝
 ```
 
-### 4.2 OBS Connection Results
+### 5.3 OBS Connection Results
 
 ```
 ╔═══════════════╦════════════════╦══════════════════════╗
@@ -277,9 +384,9 @@ async def handle_match_lifecycle():
 
 ---
 
-## 5. Configuration Management
+## 6. Configuration Management
 
-### 5.1 Environment Variables (.env)
+### 6.1 Environment Variables (.env)
 
 ```bash
 # Existing configurations
@@ -300,7 +407,7 @@ DISPLAY_CLIENT_TABLE=true
 DISPLAY_OBS_STATUS=true
 ```
 
-### 5.2 Dependencies Update (pyproject.toml)
+### 6.2 Dependencies Update (pyproject.toml)
 
 ```toml
 dependencies = [
@@ -313,9 +420,9 @@ dependencies = [
 
 ---
 
-## 6. Error Handling Strategy
+## 7. Error Handling Strategy
 
-### 6.1 Connection Failures
+### 7.1 Connection Failures
 
 **Timeout Handling:**
 - 30-second timeout per client
@@ -328,7 +435,7 @@ dependencies = [
 - Attempt retry (configurable)
 - Mark client as failed after retries
 
-### 6.2 Recording Failures
+### 7.2 Recording Failures
 
 **Start Recording Failure:**
 - Log error with client IP
@@ -339,7 +446,7 @@ dependencies = [
 - Log error but don't block match progression
 - Attempt graceful cleanup
 
-### 6.3 Async Operation Management
+### 7.3 Async Operation Management
 
 **Task Cancellation:**
 - Proper cleanup on SIGINT
@@ -352,9 +459,9 @@ dependencies = [
 
 ---
 
-## 7. Logging Strategy
+## 8. Logging Strategy
 
-### 7.1 Log Levels
+### 8.1 Log Levels
 
 ```python
 # INFO level
@@ -374,7 +481,7 @@ logger.debug(f"Kicking client {id}: OBS connection failed")
 logger.error(f"Critical OBS manager failure: {error}")
 ```
 
-### 7.2 Log Output Format
+### 8.2 Log Output Format
 
 ```
 2025-01-14 10:30:45 [INFO] Starting warmup phase with 3 humans, 2 bots
@@ -387,36 +494,39 @@ logger.error(f"Critical OBS manager failure: {error}")
 
 ---
 
-## 8. Testing Strategy
+## 9. Testing Strategy
 
-### 8.1 Unit Tests
+### 9.1 Unit Tests
 
 - OBSManager connection/disconnection
 - ClientManager type differentiation
 - GameStateManager OBS phase transitions
 - Async operation timeouts
 
-### 8.2 Integration Tests
+### 9.2 Integration Tests
 
 - Full warmup phase with OBS connections
 - Recording start/stop during matches
 - Client kick on connection failure
 - Graceful degradation scenarios
+- Immediate connection testing
+- Mixed connection state scenarios
 
-### 8.3 Manual Testing Checklist
+### 9.3 Manual Testing Checklist
 
 - [ ] Connect with 3 human clients
-- [ ] Verify bot addition (2 easy bots)
-- [ ] Check OBS connection attempts
-- [ ] Verify client table display
+- [ ] Verify immediate OBS connection attempts per client
+- [ ] Check client table displays after each connection
+- [ ] Verify warmup skips already connected clients
 - [ ] Test recording start/stop
 - [ ] Test client kick on OBS failure
 - [ ] Verify match progression
+- [ ] Test client disconnection cleanup
 - [ ] Test server shutdown cleanup
 
 ---
 
-## 9. Implementation Timeline
+## 10. Implementation Timeline
 
 ### Phase 1: Core Components (Day 1)
 - Create OBSManager class

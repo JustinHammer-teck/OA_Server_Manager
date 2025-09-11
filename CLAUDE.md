@@ -10,16 +10,19 @@ This is an OpenArena (OA) game server management system designed for network lat
 ```
 .
 ├── CLAUDE.md
-├── README.md
 ├── LATENCY_INVESTIGATION.md
 ├── OA_CMDS_CONFIGS.md
+├── OBS_INTEGRATION_PLAN.md
 ├── OBS_WEBSOCKET.md
+├── README.md
 ├── core
-│   ├── __init__.py
 │   ├── client_manager.py
+│   ├── display_utils.py
 │   ├── game_state_manager.py
 │   ├── message_processor.py
 │   ├── network_utils.py
+│   ├── obs_controller.py
+│   ├── obs_manager.py
 │   ├── server.py
 │   └── settings.py
 ├── flake.lock
@@ -204,11 +207,14 @@ sudo -v
 - **Process Control**: Server class manages `oa_ded` lifecycle with stdin command sending
 - **Output Monitoring**: Real-time parsing of server stderr for game state detection
 - **Network Latency**: `NetworkUtils.apply_latency_rules()` uses tc/HTB queuing with nftables
+- **OBS Integration**: Immediate WebSocket connection to client OBS instances upon joining
 
-### Planned Client Management
+### Implemented Client Management
 - **IP Tracking**: Parse server status output to maintain client IP registry
 - **OBS Mapping**: Associate each client IP with corresponding OBS WebSocket endpoint
+- **Immediate Connection**: Connect to OBS as soon as client joins (no waiting)
 - **State Synchronization**: Coordinate match state changes with recording control
+- **Real-time Feedback**: Display connection status with formatted tables
 
 ### Experiment Sequencing
 - **Match Progression**: Automatic transition through experimental match sequence
@@ -251,6 +257,40 @@ sudo -v
 6. **`core/network_utils.py`**: Network latency utilities (`NetworkUtils` class)
 
 7. **`main.py`**: **ENHANCED** integrated entry point (68 lines) with proper logging and cleanup
+
+### ✅ **OBS WEBSOCKET INTEGRATION** - Immediate Connection Feature:
+
+6. **`core/obs_manager.py`**: **NEW** OBSManager class (180+ lines) with:
+   - Asynchronous WebSocket connection management
+   - Per-client connection handling with timeout
+   - Batch recording operations (start/stop all)
+   - Individual client status tracking and cleanup
+
+7. **`core/obs_controller.py`**: **NEW** OBSWebSocketClient class (200+ lines) with:
+   - OBS WebSocket 5.x protocol implementation
+   - Authentication handling (challenge/salt)
+   - Recording control (start/stop/status)
+   - Scene management and connection lifecycle
+
+8. **`core/display_utils.py`**: **NEW** DisplayUtils class (150+ lines) with:
+   - Formatted tabulate output for client information
+   - Real-time OBS connection status display
+   - Match start/end notifications
+   - Connection result summaries
+
+### ✅ **ENHANCED COMPONENTS** - Immediate Connection Integration:
+
+- **`core/server.py`**: **ENHANCED** with immediate OBS connection (580+ lines):
+  - `_connect_single_client_obs_async()` - Immediate per-client connection
+  - `_handle_obs_connections_async()` - Skip already connected during warmup
+  - `_disconnect_client_obs_async()` - Clean disconnection handling
+  - Async task management and lifecycle control
+
+- **`core/client_manager.py`**: **ENHANCED** with OBS status tracking (210+ lines):
+  - Human vs Bot client differentiation
+  - Per-IP OBS connection status tracking
+  - Tabulate-ready data formatting
+  - Bot name recognition and type detection
 
 ### ✅ **REFACTORING COMPLETE** - All Core Components Implemented:
 
@@ -337,8 +377,23 @@ sudo -v
    - ✅ Added performance metrics and scalability data
    - ✅ Included security considerations and research applications
 
-## **🎯 Current Status: CORE REFACTORING COMPLETE + FULLY DOCUMENTED**
-The system has been successfully refactored from the original 437-line procedural script to a modern OOP architecture with 400+ lines across 7 modular files. The server is now fully functional, tested, and comprehensively documented for research use.
+## **🎯 Current Status: OBS WEBSOCKET INTEGRATION COMPLETE**
+The system has been successfully enhanced from core refactoring to full OBS WebSocket integration with immediate connection capability. The server now features:
+
+### **✅ Complete OBS Integration Features:**
+- **Immediate Connection**: OBS connects when each client joins (no waiting)
+- **Real-time Feedback**: Instant connection status display with tables
+- **Asynchronous Operations**: Non-blocking OBS management in separate thread
+- **Per-match Recording**: Automatic recording start/stop for each match
+- **Graceful Handling**: Proper cleanup on client disconnect and server shutdown
+- **Mixed Connection States**: Handles partially connected scenarios during warmup
+
+### **📊 Architecture Statistics:**
+- **Original**: 437-line procedural script
+- **Current**: 1000+ lines across 10 modular components
+- **Core Files**: 7 fully refactored components
+- **OBS Integration**: 3 new specialized classes
+- **Enhanced Files**: 2 components with OBS features
 
 ### **Phase 4: Advanced Features** (Priority: Medium)
 1. **Enhanced LatencyManager** (`core/latency_manager.py`):
