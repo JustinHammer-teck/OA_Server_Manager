@@ -20,3 +20,8 @@ bot_difficulty = int(os.getenv("BOT_DIFFICULTY", 1))
 bot_names = os.getenv("BOT_NAMES", "").split(",")
 
 latencies = [int(lat) for lat in os.getenv("LATENCIES", "200").split(",")]
+
+# OBS WebSocket settings
+obs_port = os.getenv("OBS_PORT", "4455")
+obs_password = os.getenv("OBS_PASSWORD", None)
+obs_connection_timeout = os.getenv("OBS_CONNECTION_TIMEOUT", "30")

@@ -1,7 +1,7 @@
 import logging
 import time
 from enum import Enum
-from typing import Callable, Optional
+from typing import Callable, Optional, Dict
 
 import core.settings as settings
 
@@ -45,7 +45,8 @@ class GameStateManager:
         # Server commands for warmup phase
         self.send_command("vstr m0")  # Load first map
         self.send_command(f"timelimit {settings.warmup_timelimit}")
-        self.send_command(f"say Starting warmup round: {settings.warmup_timelimit} minutes!")
+        self.send_command(f"say Starting warmup round: {settings.warmup_timelimit} minute(s)!")
+        self.send_command(f"say Connecting to OBS instances...")
         
         self.logger.info("State changed from WAITING to WARMUP")
     
@@ -124,3 +125,40 @@ class GameStateManager:
         """Check if the experiment sequence is complete."""
         return (self.current_state == GameState.RUNNING and 
                 self.round_count >= self.max_rounds)
+    
+    def check_obs_ready(self, obs_manager, client_manager) -> bool:
+        """
+        Check if all human clients have OBS connected.
+        
+        Args:
+            obs_manager: OBSManager instance to check connections
+            client_manager: ClientManager instance to get human clients
+            
+        Returns:
+            True if all human clients have OBS connected
+        """
+        human_ips = client_manager.get_human_clients()
+        if not human_ips:
+            self.logger.warning("No human clients to check OBS status")
+            return False
+        
+        # Check if all human IPs are connected in OBS manager
+        all_connected = all(
+            obs_manager.is_client_connected(ip) for ip in human_ips
+        )
+        
+        if all_connected:
+            self.logger.info(f"All {len(human_ips)} human clients have OBS connected")
+        else:
+            connected_count = sum(1 for ip in human_ips if obs_manager.is_client_connected(ip))
+            self.logger.info(f"OBS connections: {connected_count}/{len(human_ips)} ready")
+        
+        return all_connected
+    
+    def should_start_match_recording(self) -> bool:
+        """Check if we should start recording for a new match."""
+        return self.current_state == GameState.RUNNING
+    
+    def should_stop_match_recording(self) -> bool:
+        """Check if we should stop recording after a match."""
+        return self.current_state == GameState.RUNNING and self.round_count > 0
