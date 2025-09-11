@@ -238,6 +238,11 @@ class Server:
         """Handle map initialization event."""
         self.logger.info("Map initialized - processing state transitions")
 
+        # Add bots if they haven't been added yet and are enabled
+        if not self._bots_added and self._should_add_bots():
+            self._add_bots_to_server()
+            self._bots_added = True
+
         current_players = self.client_manager.get_client_count()
 
         # Check for state transitions
@@ -320,13 +325,8 @@ class Server:
             self._start_warmup_phase()
 
     def _start_warmup_phase(self):
-        """Start the warmup phase with OBS connections and bot spawning."""
+        """Start the warmup phase with OBS connections."""
         self.game_state_manager.transition_to_warmup()
-
-        # Add bots if they haven't been added yet and are enabled
-        if not self._bots_added and self._should_add_bots():
-            self._add_bots_to_server()
-            self._bots_added = True
 
         # Display current client status
         self.display_utils.display_client_table(self.client_manager)
