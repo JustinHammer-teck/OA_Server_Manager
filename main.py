@@ -80,7 +80,7 @@ Examples:
   python main.py --no-bots                                   # No bots
 
 Game Configuration (set in .env file):
-  CAPTURELIMIT=8          # Capture/frag limit to end match (default: 8)
+  FLAGLIMIT=8          # Capture/frag limit to end match (default: 8) | FreeForAll
   WARMUP_TIME=20          # Warmup duration in seconds (default: 20)
   ENABLE_WARMUP=1         # Enable warmup mode (default: 1)
         """,
@@ -193,7 +193,6 @@ def main():
     finally:
         logger.info("Application is shutting down.")
 
-        # Clean up OBS connections
         if async_loop and async_loop.is_running():
             try:
                 future = asyncio.run_coroutine_threadsafe(
@@ -203,7 +202,6 @@ def main():
             except Exception as e:
                 logger.error(f"Error cleaning up OBS connections: {e}")
 
-        # Clean up network rules
         try:
             NetworkUtils.dispose(interface)
             logger.info("Network rules cleaned up")
@@ -212,7 +210,6 @@ def main():
 
         server.dispose()
 
-        # Stop async loop
         if async_loop and async_loop.is_running():
             async_loop.call_soon_threadsafe(async_loop.stop)
             async_thread.join(timeout=2)

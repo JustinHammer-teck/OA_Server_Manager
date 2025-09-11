@@ -30,7 +30,7 @@ class GameConfigManager:
         # Track current configuration
         self._current_config = {}
     
-    def set_capturelimit(self, limit: int) -> bool:
+    def set_flaglimit(self, limit: int) -> bool:
         """
         Set the capturelimit (fraglimit) for matches.
         
@@ -43,11 +43,11 @@ class GameConfigManager:
         try:
             self.send_command(f"set flaglimit {limit}")
             self.send_command(f"say flaglimit set to {limit}")
-            self._current_config["capturelimit"] = limit
-            self.logger.info(f"Capturelimit set to {limit}")
+            self._current_config["flaglimit"] = limit
+            self.logger.info(f"Flaglimit set to {limit}")
             return True
         except Exception as e:
-            self.logger.error(f"Error setting capturelimit: {e}")
+            self.logger.error(f"Error setting flaglimit: {e}")
             return False
     
     def set_timelimit(self, minutes: int) -> bool:
@@ -226,8 +226,8 @@ class GameConfigManager:
             success = True
             
             # Apply capture limit
-            if hasattr(settings, 'capturelimit'):
-                success &= self.set_capturelimit(settings.capturelimit)
+            if hasattr(settings, 'flaglimit'):
+                success &= self.set_flaglimit(settings.flaglimit)
             
             # Apply warmup settings
             if hasattr(settings, 'warmup_time'):
