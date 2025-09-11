@@ -218,9 +218,7 @@ class Server:
         )
 
         if self.game_state_manager.get_current_state().name == "WAITING":
-            self.game_state_manager.send_waiting_message(
-                current_players, self.nplayers_threshold
-            )
+            self.send_command(f"say WAITING ROOM: {current_players}/{self.nplayers_threshold} players connected")
 
         if current_players > 0:
             self.display_utils.display_client_table(
@@ -317,26 +315,53 @@ class Server:
     def _handle_status_line(self, parsed_message):
         """Handle server status output."""
         if parsed_message.data.get("status_complete"):
-            client_ips = parsed_message.data.get("client_ips", [])
-            self._process_discovered_clients(client_ips)
-        elif parsed_message.data.get("client_ip"):
-            client_ip = parsed_message.data["client_ip"]
-            self.logger.debug(f"Discovered client IP: {client_ip}")
+            client_data_list = parsed_message.data.get("client_data", [])
+            self._process_discovered_clients(client_data_list)
+        elif parsed_message.data.get("client_data"):
+            client_data = parsed_message.data["client_data"]
+            self.logger.debug(f"Discovered client: ID={client_data.get('client_id')}, IP={client_data.get('ip')}, Type={client_data.get('type')}")
 
-    def _process_discovered_clients(self, client_ips):
-        """Process newly discovered client IPs - purely reactive approach."""
+    def _process_discovered_clients(self, client_data_list):
+        """Process newly discovered clients from status output."""
         newly_added_humans = []
+        
+        self.logger.info(f"[CLIENT] Processing {len(client_data_list)} discovered clients")
 
-        for ip in client_ips:
-            client_id = hash(ip) % 1000  # Simple hash-based ID
-            latency = settings.latencies[
-                len(self.client_manager.ip_latency_map) % len(settings.latencies)
-            ]
+        for client_data in client_data_list:
+            client_id = client_data["client_id"]
+            client_type = client_data["type"]
+            client_name = client_data["name"]
+            client_ip = client_data["ip"]
+            
+            if client_type == "HUMAN" and client_ip:
+                # Assign latency for human clients
+                latency = settings.latencies[
+                    len(self.client_manager.ip_latency_map) % len(settings.latencies)
+                ]
 
-            if ip not in self.client_manager.ip_latency_map:
-                self.client_manager.add_client(client_id, ip, latency)
-                newly_added_humans.append(ip)
-                self.logger.info(f"New human client discovered: {ip}")
+                if client_ip not in self.client_manager.ip_latency_map:
+                    self.client_manager.add_client(
+                        client_id=client_id,
+                        ip=client_ip,
+                        latency=latency,
+                        name=client_name,
+                        is_bot=False
+                    )
+                    newly_added_humans.append(client_ip)
+                    self.logger.info(f"[CLIENT] New HUMAN client: ID={client_id}, Name={client_name}, IP={client_ip}, Latency={latency}ms")
+                else:
+                    self.logger.debug(f"[CLIENT] HUMAN client IP {client_ip} already tracked")
+                    
+            elif client_type == "BOT":
+                # Add bot client (no IP needed)
+                self.client_manager.add_client(
+                    client_id=client_id,
+                    ip=None,
+                    latency=None,
+                    name=client_name,
+                    is_bot=True
+                )
+                self.logger.info(f"[CLIENT] BOT client: ID={client_id}, Name={client_name}")
 
         if newly_added_humans and self._async_loop:
             for ip in newly_added_humans:
@@ -347,15 +372,16 @@ class Server:
                 )
 
         current_players = self.client_manager.get_client_count()
+        human_count = self.client_manager.get_human_count()
+        bot_count = self.client_manager.get_bot_count()
         current_state = self.game_state_manager.get_current_state()
+        
         self.logger.info(
-            f"Updated player count: {current_players}, threshold: {self.nplayers_threshold}, state: {current_state.name}"
+            f"[CLIENT] Updated player count: {current_players} total ({human_count} humans, {bot_count} bots), threshold: {self.nplayers_threshold}, state: {current_state.name}"
         )
 
         if current_state.name == "WAITING":
-            self.game_state_manager.send_waiting_message(
-                current_players, self.nplayers_threshold
-            )
+            self.send_command(f"say WAITING ROOM: {human_count}/{self.nplayers_threshold} players connected")
             
         if current_players > 0:
             self.display_utils.display_client_table(self.client_manager, "CLIENT STATUS UPDATE")
