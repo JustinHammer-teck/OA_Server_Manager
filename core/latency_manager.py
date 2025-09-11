@@ -4,7 +4,7 @@ Latency Management - Handles network latency simulation and rotation.
 Extracted from server.py to separate network latency concerns.
 """
 import logging
-from typing import Dict, List, Callable
+from typing import Dict, List, Callable, Optional
 
 import core.settings as settings
 from core.network_utils import NetworkUtils
@@ -33,6 +33,7 @@ class LatencyManager:
         # Current latency configuration
         self._current_latencies = list(settings.latencies)
         self._round_count = 0
+        self._enabled = settings.enable_latency_control
     
     def set_interface(self, interface: str) -> None:
         """
@@ -54,6 +55,12 @@ class LatencyManager:
         Returns:
             True if latency rules were applied successfully
         """
+        if not self._enabled:
+            self.logger.info("Latency control is disabled, skipping latency application")
+            if self.send_command:
+                self.send_command("say Latency control disabled")
+            return True
+            
         try:
             latency_map = client_manager.get_latency_map()
             if not latency_map:
@@ -88,17 +95,18 @@ class LatencyManager:
         Returns:
             True if latencies were rotated successfully
         """
+        if not self._enabled:
+            self.logger.info("Latency control is disabled, skipping latency rotation")
+            return True
+            
         try:
-            # Simple rotation strategy - shift latencies by one position
             self._current_latencies = self._current_latencies[1:] + self._current_latencies[:1]
             self._round_count += 1
             
-            # Update client manager with new latency assignments
             client_manager.assign_latencies(self._current_latencies)
             
             self.logger.info(f"Round {self._round_count}: Rotated latencies to {self._current_latencies}")
             
-            # Notify players about latency change
             if self.send_command:
                 latency_str = ", ".join(f"{lat}ms" for lat in self._current_latencies)
                 self.send_command(f"say Round {self._round_count}: New latencies - {latency_str}")
@@ -119,6 +127,10 @@ class LatencyManager:
         Returns:
             True if latencies were applied successfully
         """
+        if not self._enabled:
+            self.logger.info("Latency control is disabled, skipping specific latency application")
+            return True
+            
         try:
             if not latency_map:
                 self.logger.warning("Empty latency map provided")
@@ -128,7 +140,6 @@ class LatencyManager:
             
             self.logger.info(f"Applied specific latency rules to {len(latency_map)} clients")
             
-            # Log the specific latency assignments
             for ip, latency in latency_map.items():
                 self.logger.info(f"Applied {latency}ms latency to client {ip}")
             
@@ -287,6 +298,48 @@ class LatencyManager:
             Current network interface name
         """
         return self.interface
+    
+    def is_enabled(self) -> bool:
+        """
+        Check if latency control is enabled.
+        
+        Returns:
+            True if latency control is enabled
+        """
+        return self._enabled
+    
+    def enable_latency_control(self) -> None:
+        """Enable latency control."""
+        self._enabled = True
+        self.logger.info("Latency control enabled")
+        if self.send_command:
+            self.send_command("say Latency control enabled")
+    
+    def disable_latency_control(self) -> None:
+        """Disable latency control and clear existing rules."""
+        self._enabled = False
+        self.logger.info("Latency control disabled")
+        
+        # Clear existing latency rules when disabling
+        try:
+            self.clear_latency_rules()
+        except Exception as e:
+            self.logger.warning(f"Failed to clear latency rules when disabling: {e}")
+        
+        if self.send_command:
+            self.send_command("say Latency control disabled")
+    
+    def set_enabled(self, enabled: bool) -> None:
+        """
+        Set latency control enabled/disabled state.
+        
+        Args:
+            enabled: True to enable, False to disable latency control
+        """
+        if enabled:
+            self.enable_latency_control()
+        else:
+            self.disable_latency_control()
     
     def validate_interface(self) -> bool:
         """
