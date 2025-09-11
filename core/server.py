@@ -240,7 +240,7 @@ class Server:
 
         self.send_command("say Match ended! Recordings stopped.")
 
-        result = self.game_state_manager.handle_match_end()
+        result = self.game_state_manager.handle_match_end_detected()
 
         if result and "actions" in result:
             actions = result["actions"]
@@ -293,7 +293,7 @@ class Server:
             
         elif event_type == "warmup_end":
             self.logger.info("ShutdownGame: Warmup ended, match starting")
-            result = self.game_state_manager.handle_warmup_end()
+            result = self.game_state_manager.handle_match_start_detected()
             
             if result and "actions" in result:
                 actions = result["actions"]
