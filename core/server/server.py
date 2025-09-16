@@ -279,13 +279,19 @@ class Server:
     def _handle_game_initialization(self, parsed_message):
         """Handle game initialization event - waiting to see if warmup or match follows."""
         self.logger.info("Game Initialization detected - determining initialization type")
-        
+
         # Track game initialization
         result = self.game_state_manager.handle_game_initialization_detected()
         if result and "actions" in result:
             self.logger.debug("Game initialization tracked")
-        
+
         self.send_command("say Game initializing...")
+
+        # Check if we should start warmup even at initialization
+        if self.game_state_manager.current_state.name == "WAITING":
+            if self.game_state_manager.should_start_warmup(self.client_manager, self.obs_connection_manager.obs_manager):
+                self.logger.info("Starting warmup at initialization due to insufficient human players")
+                self.game_config_manager.start_warmup_phase()
 
     def _handle_warmup_state(self, parsed_message):
         """Handle warmup state transition."""
@@ -309,21 +315,24 @@ class Server:
         human_count = self.client_manager.get_human_count()
         obs_status = self.game_state_manager.get_obs_status(self.obs_connection_manager.obs_manager, self.client_manager)
 
-        if human_count >= self.nplayers_threshold and obs_status["all_connected"]:
+        if human_count >= self.nplayers_threshold and (human_count == 0 or obs_status["all_connected"]):
             # Conditions met - disable warmup and let match start
             self.send_command("set g_doWarmup 0")
             self.send_command("say All players connected and OBS ready - starting match!")
             self.logger.info("Warmup conditions satisfied - disabling warmup to start match")
         else:
-            # Keep warmup active
+            # Keep warmup active by restarting if needed
             reasons = []
             if human_count < self.nplayers_threshold:
                 reasons.append(f"players {human_count}/{self.nplayers_threshold}")
-            if not obs_status["all_connected"]:
+            if human_count > 0 and not obs_status["all_connected"]:
                 reasons.append(f"OBS {obs_status['connected']}/{obs_status['total']}")
 
             self.send_command(f"say Warmup continues - waiting for: {', '.join(reasons)}")
             self.logger.info(f"Warmup continues due to: {', '.join(reasons)}")
+
+            # Re-enable warmup if it got disabled
+            self.send_command("set g_doWarmup 1")
 
     def _process_match_end_actions(self, actions):
         if "rotate_latency" in actions:

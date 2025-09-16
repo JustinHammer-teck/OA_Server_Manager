@@ -166,8 +166,8 @@ class GameStateManager:
         human_count = client_manager.get_human_count()
         obs_status = self.get_obs_status(obs_manager, client_manager)
 
-        # Start warmup if we have humans but not enough players OR not all OBS connected
-        if human_count > 0 and (human_count < settings.nplayers_threshold or not obs_status["all_connected"]):
+        # Start warmup if we don't have enough human players OR not all OBS connected
+        if human_count < settings.nplayers_threshold or (human_count > 0 and not obs_status["all_connected"]):
             return True
 
         return False
