@@ -13,6 +13,7 @@ All specialized logic has been extracted to dedicated managers.
 import asyncio
 import logging
 import subprocess
+import threading
 import time
 from subprocess import PIPE, Popen
 from typing import Optional
@@ -45,6 +46,8 @@ class Server:
 
         self._process: Optional[Popen] = None
         self._async_loop: Optional[asyncio.AbstractEventLoop] = None
+        self._active_tasks = set()
+        self._shutdown_event = threading.Event()
 
         self.client_manager = ClientManager()
         self.game_state_manager = GameStateManager(self.send_command)
@@ -147,6 +150,12 @@ class Server:
 
     def dispose(self):
         """Shut down the server process gracefully."""
+        self.logger.info("Starting graceful server shutdown...")
+        self._shutdown_event.set()
+
+        # Cancel all active async tasks
+        self._cancel_all_async_tasks()
+
         # Cancel any ongoing bot addition tasks
         self.bot_manager.reset_bot_state()
 
@@ -162,6 +171,32 @@ class Server:
                 self._process.wait()
 
         self.logger.info("Server process disposed successfully")
+
+    def _cancel_all_async_tasks(self):
+        """Cancel all active async tasks."""
+        if not self._active_tasks:
+            return
+
+        self.logger.info(f"Cancelling {len(self._active_tasks)} active async tasks...")
+
+        for task in list(self._active_tasks):
+            try:
+                task.cancel()
+                self.logger.debug(f"Cancelled async task: {task}")
+            except Exception as e:
+                self.logger.error(f"Error cancelling task {task}: {e}")
+
+        # Wait a bit for tasks to clean up
+        timeout = 3.0
+        start_time = time.time()
+        while self._active_tasks and (time.time() - start_time) < timeout:
+            time.sleep(0.1)
+
+        remaining_tasks = len(self._active_tasks)
+        if remaining_tasks > 0:
+            self.logger.warning(f"{remaining_tasks} async tasks did not cancel within {timeout}s")
+        else:
+            self.logger.info("All async tasks cancelled successfully")
 
     def configure_bots(self, bot_config):
         """Configure bot settings from command line arguments."""
@@ -188,14 +223,15 @@ class Server:
     
     def _create_async_task_safe(self, coro, name: str = None):
         """Safely create an async task with exception handling."""
-        if not self._async_loop:
-            self.logger.warning(f"No async loop available for task: {name or 'unnamed'}")
+        if not self._async_loop or self._shutdown_event.is_set():
+            self.logger.warning(f"No async loop available or shutdown in progress for task: {name or 'unnamed'}")
             return None
 
-        # Use run_coroutine_threadsafe for thread-safe task creation
         future = asyncio.run_coroutine_threadsafe(coro, self._async_loop)
+        self._active_tasks.add(future)
 
         def handle_task_exception(future_result):
+            self._active_tasks.discard(future_result)
             try:
                 future_result.result()
                 self.logger.debug(f"Task {name or 'unnamed'} completed successfully")
@@ -206,6 +242,10 @@ class Server:
 
         future.add_done_callback(handle_task_exception)
         return future
+
+    def is_shutdown_requested(self):
+        """Check if shutdown has been requested."""
+        return self._shutdown_event.is_set()
 
     def process_server_message(self, raw_message: str):
         """Process a server message and coordinate responses."""
@@ -467,7 +507,7 @@ class Server:
         self.logger.info("Starting server message processing loop")
 
         try:
-            while True:
+            while not self.is_shutdown_requested():
                 message = self.read_server()
                 if message:
                     self.logger.debug(f"SERVER: {message}")

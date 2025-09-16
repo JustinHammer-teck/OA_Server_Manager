@@ -342,7 +342,6 @@ class GameConfigManager:
         try:
             self.send_command(f"set g_warmup {settings.warmup_time}")
             self.send_command("set g_doWarmup 1")
-            self.send_command("map_restart")
             self.logger.info(f"Restarted warmup with {settings.warmup_time}s timer")
             return True
         except Exception as e:

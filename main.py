@@ -21,33 +21,52 @@ interface = "eno2"
 
 
 def signal_handler(sig, frame):
-    """Handle Ctrl-C interrupts cleanly."""
-    logger.warning("Interrupt signal received. Starting cleanup...")
+    """Handle exit signals (SIGINT, SIGTERM) cleanly."""
+    signal_name = "SIGTERM" if sig == signal.SIGTERM else "SIGINT"
+    logger.warning(f"{signal_name} received. Starting graceful shutdown...")
 
-    # Clean up OBS connections
-    if async_loop and async_loop.is_running():
-        try:
-            future = asyncio.run_coroutine_threadsafe(
-                server.cleanup_obs_async(), async_loop
-            )
-            future.result(timeout=5)  # Wait up to 5 seconds for cleanup
-        except Exception as e:
-            logger.error(f"Error cleaning up OBS connections: {e}")
+    # Set a shutdown timeout
+    def force_exit():
+        time.sleep(10)  # 10 second timeout
+        logger.error("Forced shutdown after timeout")
+        os._exit(1)
 
-    # Clean up network rules
+    import os
+    import threading
+    timeout_thread = threading.Thread(target=force_exit, daemon=True)
+    timeout_thread.start()
+
     try:
-        NetworkUtils.dispose(interface)
-        logger.info("Network rules cleaned up")
+        # Clean up OBS connections
+        if async_loop and async_loop.is_running():
+            try:
+                future = asyncio.run_coroutine_threadsafe(
+                    server.cleanup_obs_async(), async_loop
+                )
+                future.result(timeout=5)
+            except Exception as e:
+                logger.error(f"Error cleaning up OBS connections: {e}")
+
+        # Clean up network rules
+        try:
+            NetworkUtils.dispose(interface)
+            logger.info("Network rules cleaned up")
+        except Exception as e:
+            logger.error(f"Error cleaning up network rules: {e}")
+
+        # Dispose server and all async tasks
+        server.dispose()
+
+        # Stop async loop
+        if async_loop and async_loop.is_running():
+            async_loop.call_soon_threadsafe(async_loop.stop)
+
+        logger.info("Graceful shutdown completed")
+        sys.exit(0)
+
     except Exception as e:
-        logger.error(f"Error cleaning up network rules: {e}")
-
-    server.dispose()
-
-    # Stop async loop
-    if async_loop and async_loop.is_running():
-        async_loop.call_soon_threadsafe(async_loop.stop)
-
-    sys.exit(0)
+        logger.error(f"Error during shutdown: {e}")
+        sys.exit(1)
 
 
 def run_async_loop():
@@ -177,6 +196,7 @@ def main():
     args = parse_arguments()
 
     signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
 
     bot_config = configure_bots_from_args(args)
     interface = args.interface  # Update global interface
