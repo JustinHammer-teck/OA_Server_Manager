@@ -78,50 +78,7 @@ class DisplayUtils:
         connected_count = sum(1 for connected in connection_results.values() if connected)
         total_count = len(connection_results)
         logger.info(f"OBS connections: {connected_count}/{total_count} successful")
-    
-    @staticmethod
-    def display_recording_status(recording_status: Dict[str, Dict],
-                                  title: str = "RECORDING STATUS") -> None:
-        """
-        Display recording status for all clients.
-        
-        Args:
-            recording_status: Dictionary mapping IP to recording status dict
-            title: Title for the table display
-        """
-        logger = logging.getLogger(__name__)
-        
-        if not recording_status:
-            logger.info("No recording status available")
-            return
-        
-        # Prepare table data
-        table_data = []
-        for ip, status in recording_status.items():
-            if status.get("connected", False):
-                active = "Recording" if status.get("active", False) else "Not Recording"
-                duration = status.get("duration", 0)
-                duration_str = f"{duration // 60}:{duration % 60:02d}" if duration > 0 else "0:00"
-                table_data.append([ip, active, duration_str])
-            else:
-                table_data.append([ip, "Not Connected", "N/A"])
-        
-        # Define headers
-        headers = ["Client IP", "Status", "Duration"]
-        
-        # Create formatted output
-        print("\n" + "=" * 50)
-        print(f"{title:^50}")
-        print("=" * 50)
-        print(tabulate(table_data, headers=headers, tablefmt="grid"))
-        print("=" * 50)
-        
-        # Log summary
-        recording_count = sum(1 for status in recording_status.values() 
-                              if status.get("active", False))
-        total_count = len(recording_status)
-        logger.info(f"Recording: {recording_count}/{total_count} active")
-    
+
     @staticmethod
     def display_match_start(round_num: int, max_rounds: int) -> None:
         """

@@ -7,8 +7,8 @@ import asyncio
 import logging
 from typing import Dict, List, Optional, Callable
 
-from core.obs_manager import OBSManager
-from core.display_utils import DisplayUtils
+from core.obs.manager import OBSManager
+from core.utils.display_utils import DisplayUtils
 
 
 class OBSConnectionManager:
@@ -119,14 +119,12 @@ class OBSConnectionManager:
             Dictionary mapping IP to connection success status
         """
         try:
-            # Get human client IPs
             human_ips = client_manager.get_human_clients()
             
             if not human_ips:
                 self.logger.info("No human clients for warmup OBS check")
                 return {}
             
-            # Check which clients are already connected vs need connection
             already_connected = []
             need_connection = []
             
@@ -150,29 +148,23 @@ class OBSConnectionManager:
             
             connection_results = {}
             
-            # Only attempt connections for clients that need it
             if need_connection:
                 self.logger.info(f"Attempting OBS connections for {len(need_connection)} remaining clients")
                 connection_results = await self.obs_manager.connect_all_clients(need_connection)
                 
-                # Update client manager with OBS status
                 for ip, connected in connection_results.items():
                     client_manager.set_obs_status(ip, connected)
             
-            # Add already connected clients to results
             for ip in already_connected:
                 connection_results[ip] = True
             
-            # Display connection results (only if there were new attempts)
             if need_connection:
                 self.display_utils.display_obs_connection_results(connection_results)
             
-            # Show current client status table
             self.display_utils.display_client_table(
                 client_manager, "WARMUP PHASE - CLIENT STATUS"
             )
             
-            # Handle failed connections
             await self._handle_warmup_failures(connection_results, client_manager)
             
             return connection_results
@@ -250,7 +242,6 @@ class OBSConnectionManager:
     async def disconnect_client(self, client_ip: str):
         """Disconnect a single client's OBS connection."""
         try:
-            # Cancel any ongoing connection task
             if client_ip in self._connection_tasks:
                 self._connection_tasks[client_ip].cancel()
                 del self._connection_tasks[client_ip]
@@ -263,25 +254,15 @@ class OBSConnectionManager:
     async def cleanup_all(self):
         """Clean up all OBS connections and tasks."""
         try:
-            # Cancel all connection tasks
             for task in self._connection_tasks.values():
                 task.cancel()
             self._connection_tasks.clear()
             
-            # Disconnect all OBS clients
             await self.obs_manager.disconnect_all()
             self.logger.info("All OBS connections cleaned up")
         except Exception as e:
             self.logger.error(f"Error cleaning up OBS connections: {e}")
-    
-    def get_connection_count(self) -> int:
-        """Get number of connected OBS clients."""
-        return self.obs_manager.get_connection_count()
-    
+
     def is_client_connected(self, client_ip: str) -> bool:
         """Check if a client is connected."""
         return self.obs_manager.is_client_connected(client_ip)
-    
-    def get_connected_clients(self) -> List[str]:
-        """Get list of connected client IPs."""
-        return self.obs_manager.get_connected_clients()

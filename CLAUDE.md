@@ -2,7 +2,17 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-- Do not comment for the obvious method that do that think. Use comment when it has to be there. Don't use too much comment in the code.
+
+## Agent Instruction.
+
+- Strictly do what been told to do not do more.
+- You must focus on one task at a time.
+- You must only go for simple implementation.
+- Do not over complicate.
+- Do not comment for the obvious method that do that think.
+- Do not comment code but remove it completely.
+- Your implementation should be as simple as possible.
+- Always ask for clarification for better context.
 
 ## Project Overview
 This is an OpenArena (OA) game server management system designed for network latency experiments and performance monitoring. The project is undergoing refactoring from a procedural script (`server_script.py`) to a modern OOP architecture for better modularity, extensibility, and integration with external systems.
@@ -12,32 +22,32 @@ This is an OpenArena (OA) game server management system designed for network lat
 ```
 .
 ├── CLAUDE.md
-├── LATENCY_INVESTIGATION.md
 ├── OA_CMDS_CONFIGS.md
-├── OBS_INTEGRATION_PLAN.md
-├── OBS_WEBSOCKET.md
 ├── README.md
-├── core
-│   ├── __init__.py
-│   ├── bot_manager.py
-│   ├── client_manager.py
-│   ├── display_utils.py
-│   ├── game_config_manager.py
-│   ├── game_state_manager.py
-│   ├── latency_manager.py
-│   ├── message_processor.py
-│   ├── network_utils.py
-│   ├── obs_connection_manager.py
-│   ├── obs_controller.py
-│   ├── obs_manager.py
-│   ├── server.py
-│   ├── server.py.bak
-│   └── settings.py
-├── tests
-│   ├── README.md
-│   ├── __init__.py
-│   ├── obs_test.py
-│   └── test_obs_connection.py
+└── core
+│   ├── game
+│   │   ├── __init__.py
+│   │   ├── game_manager.py
+│   │   └── state_manager.py
+│   ├── messaging
+│   │   ├── __init__.py
+│   │   └── message_processor.py
+│   ├── network
+│   │   ├── __init__.py
+│   │   ├── network_manager.py
+│   │   └── network_utils.py
+│   ├── obs
+│   │   ├── __init__.py
+│   │   ├── connection_manager.py
+│   │   ├── controller.py
+│   │   └── manager.py
+│   ├── server
+│   │   ├── __init__.py
+│   │   └── server.py
+│   └── utils
+│       ├── __init__.py
+│       ├── display_utils.py
+│       └── settings.py
 ├── flake.lock
 ├── flake.nix
 ├── main.py
@@ -52,16 +62,14 @@ This is an OpenArena (OA) game server management system designed for network lat
 ### Development and Testing
 ```bash
 # Install dependencies
-uv sync  # or pip install -e .
+uv sync  # On init
+uv add websockets 
 
 # Run the refactored OOP server
-python main.py
+uv run main.py
 
 # Run the legacy procedural server (for reference)
-python server_script.py --interface enp1s0 --bots 4 --difficulty 3
-
-# Install Node.js dependencies (Claude Code integration)
-pnpm install
+uv run server_script.py --interface enp1s0 --bots 4 --difficulty 3
 ```
 
 ### Configuration Management

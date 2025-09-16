@@ -2,7 +2,7 @@ import logging
 from enum import Enum
 from typing import Callable
 
-import core.settings as settings
+import core.utils.settings as settings
 
 
 class GameState(Enum):
@@ -36,6 +36,9 @@ class GameStateManager:
             self.warmup_round_count = 0
             result["state_changed"] = True
             self.logger.info("State tracked: WAITING -> WARMUP")
+        elif self.current_state == GameState.WARMUP:
+            self.warmup_round_count += 1
+            self.logger.info(f"Warmup restarted (round {self.warmup_round_count})")
         else:
             self.logger.warning(f"Unexpected warmup from state {self.current_state}")
 
@@ -56,15 +59,6 @@ class GameStateManager:
         else:
             self.logger.warning(f"Unexpected match start from state {self.current_state}")
 
-        return result
-
-    def handle_game_initialization_detected(self) -> dict:
-        """React to server game initialization - wait for warmup or match signal."""
-        result = {
-            "actions": [],
-        }
-        
-        self.logger.info("Game initialization detected - waiting for server direction")
         return result
 
     def handle_fraglimit_detected(self) -> dict:
@@ -157,3 +151,17 @@ class GameStateManager:
             "total": len(human_ips),
             "all_connected": all_connected,
         }
+
+    def should_start_warmup(self, client_manager, obs_manager) -> bool:
+        """Check if warmup should start based on player count and OBS connections."""
+        if self.current_state != GameState.WAITING:
+            return False
+
+        human_count = client_manager.get_human_count()
+        obs_status = self.get_obs_status(obs_manager, client_manager)
+
+        # Start warmup if we don't have enough human players OR not all OBS connected
+        if human_count < settings.nplayers_threshold or (human_count > 0 and not obs_status["all_connected"]):
+            return True
+
+        return False
