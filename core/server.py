@@ -191,21 +191,21 @@ class Server:
         if not self._async_loop:
             self.logger.warning(f"No async loop available for task: {name or 'unnamed'}")
             return None
-            
-        task = self._async_loop.create_task(coro)
-        if name:
-            task.set_name(name)
-        
-        def handle_task_exception(task_result):
+
+        # Use run_coroutine_threadsafe for thread-safe task creation
+        future = asyncio.run_coroutine_threadsafe(coro, self._async_loop)
+
+        def handle_task_exception(future_result):
             try:
-                task_result.result()
+                future_result.result()
+                self.logger.debug(f"Task {name or 'unnamed'} completed successfully")
             except asyncio.CancelledError:
                 self.logger.debug(f"Task {name or 'unnamed'} was cancelled")
             except Exception as e:
                 self.logger.error(f"Unhandled exception in task {name or 'unnamed'}: {e}", exc_info=True)
-        
-        task.add_done_callback(handle_task_exception)
-        return task
+
+        future.add_done_callback(handle_task_exception)
+        return future
 
     def process_server_message(self, raw_message: str):
         """Process a server message and coordinate responses."""
