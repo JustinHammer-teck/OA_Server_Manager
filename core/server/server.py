@@ -17,15 +17,15 @@ import time
 from subprocess import PIPE, Popen
 from typing import Optional
 
-import core.settings as settings
-from core.bot_manager import BotManager
-from core.client_manager import ClientManager
-from core.display_utils import DisplayUtils
-from core.game_config_manager import GameConfigManager
-from core.game_state_manager import GameStateManager
-from core.latency_manager import LatencyManager
-from core.message_processor import MessageProcessor, MessageType
-from core.obs_connection_manager import OBSConnectionManager
+import core.utils.settings as settings
+from core.game.bot_manager import BotManager
+from core.network.client_manager import ClientManager
+from core.utils.display_utils import DisplayUtils
+from core.game.config_manager import GameConfigManager
+from core.game.state_manager import GameStateManager
+from core.network.latency_manager import LatencyManager
+from core.messaging.message_processor import MessageProcessor, MessageType
+from core.obs.connection_manager import OBSConnectionManager
 
 
 class Server:
@@ -271,16 +271,7 @@ class Server:
         result = self.game_state_manager.handle_fraglimit_detected()
 
         if result and "actions" in result:
-            actions = result["actions"]
-
-            if "rotate_latency" in actions:
-                self.latency_manager.rotate_latencies(self.client_manager)
-                self.logger.info("Latency rotated for next match")
-
-            if "restart_match" in actions:
-                time.sleep(2)  # Brief delay
-                self.game_config_manager.restart_map()
-                self.logger.info("Match restarted")
+            self._process_match_end_actions(result["actions"])
         
         if result and result.get("experiment_finished"):
             self.logger.info("Experiment completed after fraglimit hit")
@@ -314,15 +305,35 @@ class Server:
                 "add_bots_async"
             )
 
-        # Check if all human users are connected to OBS, restart if not
-        restart_sent = self.obs_connection_manager.check_and_restart_if_incomplete_obs(
-            self.client_manager, self.game_state_manager
-        )
+        # Check if warmup should continue or if we can proceed to match
+        human_count = self.client_manager.get_human_count()
+        obs_status = self.game_state_manager.get_obs_status(self.obs_connection_manager.obs_manager, self.client_manager)
 
-        if not restart_sent:
-            self.send_command("say Warmup phase active!")
+        if human_count >= self.nplayers_threshold and obs_status["all_connected"]:
+            # Conditions met - disable warmup and let match start
+            self.send_command("set g_doWarmup 0")
+            self.send_command("say All players connected and OBS ready - starting match!")
+            self.logger.info("Warmup conditions satisfied - disabling warmup to start match")
         else:
-            self.logger.info("Warmup restart requested due to incomplete OBS connections")
+            # Keep warmup active
+            reasons = []
+            if human_count < self.nplayers_threshold:
+                reasons.append(f"players {human_count}/{self.nplayers_threshold}")
+            if not obs_status["all_connected"]:
+                reasons.append(f"OBS {obs_status['connected']}/{obs_status['total']}")
+
+            self.send_command(f"say Warmup continues - waiting for: {', '.join(reasons)}")
+            self.logger.info(f"Warmup continues due to: {', '.join(reasons)}")
+
+    def _process_match_end_actions(self, actions):
+        if "rotate_latency" in actions:
+            self.latency_manager.rotate_latencies(self.client_manager)
+            self.logger.info("Latency rotated for next match")
+
+        if "restart_match" in actions:
+            time.sleep(2)
+            self.game_config_manager.restart_map()
+            self.logger.info("Match restarted")
 
     def _handle_shutdown_game(self, parsed_message):
         """Handle game shutdown - either warmup end or match end."""
@@ -333,14 +344,7 @@ class Server:
             result = self.game_state_manager.handle_match_end_detected()
             
             if result and "actions" in result:
-                actions = result["actions"]
-                
-                if "rotate_latency" in actions:
-                    self.latency_manager.rotate_latencies(self.client_manager)
-                    
-                if "restart_match" in actions:
-                    time.sleep(2)
-                    self.game_config_manager.restart_map()
+                self._process_match_end_actions(result["actions"])
                     
             self.send_command("say Match completed!")
             
@@ -437,10 +441,15 @@ class Server:
 
         if current_state.name == "WAITING":
             self.send_command(f"say WAITING ROOM: {human_count}/{self.nplayers_threshold} players connected")
-            
+
+            # Check if we should start warmup
+            if self.game_state_manager.should_start_warmup(self.client_manager, self.obs_connection_manager.obs_manager):
+                self.logger.info("Starting warmup due to player threshold or incomplete OBS connections")
+                self.game_config_manager.start_warmup_phase()
+
         if current_players > 0:
             self.display_utils.display_client_table(self.client_manager, "CLIENT STATUS UPDATE")
-            
+
             round_info = self.game_state_manager.get_round_info()
             self.logger.info(f"Experiment status: {round_info}")
 

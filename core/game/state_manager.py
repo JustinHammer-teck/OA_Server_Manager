@@ -157,3 +157,17 @@ class GameStateManager:
             "total": len(human_ips),
             "all_connected": all_connected,
         }
+
+    def should_start_warmup(self, client_manager, obs_manager) -> bool:
+        """Check if warmup should start based on player count and OBS connections."""
+        if self.current_state != GameState.WAITING:
+            return False
+
+        human_count = client_manager.get_human_count()
+        obs_status = self.get_obs_status(obs_manager, client_manager)
+
+        # Start warmup if we have humans but not enough players OR not all OBS connected
+        if human_count > 0 and (human_count < settings.nplayers_threshold or not obs_status["all_connected"]):
+            return True
+
+        return False

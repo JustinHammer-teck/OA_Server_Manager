@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from typing import Dict, List, Optional, Tuple
-from core.obs_controller import OBSWebSocketClient
+from core.obs.controller import OBSWebSocketClient
 
 
 class OBSManager:

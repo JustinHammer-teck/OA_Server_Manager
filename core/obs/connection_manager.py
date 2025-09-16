@@ -7,8 +7,8 @@ import asyncio
 import logging
 from typing import Dict, List, Optional, Callable
 
-from core.obs_manager import OBSManager
-from core.display_utils import DisplayUtils
+from core.obs.manager import OBSManager
+from core.utils.display_utils import DisplayUtils
 
 
 class OBSConnectionManager:

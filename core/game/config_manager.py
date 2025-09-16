@@ -102,7 +102,7 @@ class GameConfigManager:
         """
         try:
             value = "1" if enable else "0"
-            self.send_command(f"set g_dowarmup {value}")
+            self.send_command(f"set g_doWarmup {value}")
             status = "enabled" if enable else "disabled"
             self.send_command(f"say Warmup {status}")
             self._current_config["warmup_enabled"] = enable
@@ -262,7 +262,7 @@ class GameConfigManager:
                 config_args["g_warmup"] = str(settings.warmup_time)
             
             if hasattr(settings, 'enable_warmup'):
-                config_args["g_dowarmup"] = "1" if settings.enable_warmup else "0"
+                config_args["g_doWarmup"] = "1" if settings.enable_warmup else "0"
             
             return config_args
             
@@ -312,4 +312,22 @@ class GameConfigManager:
             return True
         except Exception as e:
             self.logger.error(f"Error enabling cheats: {e}")
+            return False
+
+    def start_warmup_phase(self) -> bool:
+        """
+        Start warmup phase by enabling warmup and restarting map.
+
+        Returns:
+            True if warmup was started successfully
+        """
+        try:
+            self.send_command(f"set g_warmup {settings.warmup_time}")
+            self.send_command("set g_doWarmup 1")
+            self.send_command("map_restart")
+            self.send_command(f"say Starting {settings.warmup_time}s warmup - waiting for all players and OBS connections")
+            self.logger.info(f"Started warmup phase ({settings.warmup_time}s)")
+            return True
+        except Exception as e:
+            self.logger.error(f"Error starting warmup phase: {e}")
             return False

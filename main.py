@@ -5,9 +5,9 @@ import signal
 import sys
 import threading
 
-import core.settings as settings
-from core.network_utils import NetworkUtils
-from core.server import Server
+import core.utils.settings as settings
+from core.network.network_utils import NetworkUtils
+from core.server.server import Server
 
 logging.basicConfig(
     level=logging.DEBUG, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"

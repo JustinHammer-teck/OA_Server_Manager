@@ -6,8 +6,8 @@ Extracted from server.py to separate network latency concerns.
 import logging
 from typing import Dict, List, Callable, Optional
 
-import core.settings as settings
-from core.network_utils import NetworkUtils
+import core.utils.settings as settings
+from core.network.network_utils import NetworkUtils
 
 
 class LatencyManager:

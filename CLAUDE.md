@@ -2,7 +2,17 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-- Do not comment for the obvious method that do that think. Use comment when it has to be there. Don't use too much comment in the code.
+
+## Agent Instruction.
+
+- You must only go for simple implementation 
+- Do not over complicate.
+- Do not comment for the obvious method that do that think. Use comment when it has to be there.
+- Do not comment code but remove it completely.
+- Only do what been told to do not do more.
+- Your implementation should be as simple as possible.
+- Always ask for clarification for better context.
+- Only focus on task at a time.
 
 ## Project Overview
 This is an OpenArena (OA) game server management system designed for network latency experiments and performance monitoring. The project is undergoing refactoring from a procedural script (`server_script.py`) to a modern OOP architecture for better modularity, extensibility, and integration with external systems.
@@ -17,27 +27,26 @@ This is an OpenArena (OA) game server management system designed for network lat
 ├── OBS_INTEGRATION_PLAN.md
 ├── OBS_WEBSOCKET.md
 ├── README.md
-├── core
-│   ├── __init__.py
-│   ├── bot_manager.py
-│   ├── client_manager.py
-│   ├── display_utils.py
-│   ├── game_config_manager.py
-│   ├── game_state_manager.py
-│   ├── latency_manager.py
-│   ├── message_processor.py
-│   ├── network_utils.py
-│   ├── obs_connection_manager.py
-│   ├── obs_controller.py
-│   ├── obs_manager.py
-│   ├── server.py
-│   ├── server.py.bak
-│   └── settings.py
-├── tests
-│   ├── README.md
-│   ├── __init__.py
-│   ├── obs_test.py
-│   └── test_obs_connection.py
+└── core/
+    ├── server/
+    │   └── server.py
+    ├── game/
+    │   ├── state_manager.py
+    │   ├── config_manager.py
+    │   └── bot_manager.py
+    ├── network/
+    │   ├── latency_manager.py
+    │   ├── client_manager.py
+    │   └── network_utils.py
+    ├── obs/
+    │   ├── connection_manager.py
+    │   ├── manager.py
+    │   └── controller.py
+    ├── messaging/
+    │   └── message_processor.py
+    ├── utils/
+    │   ├── display_utils.py
+    │   └── settings.py
 ├── flake.lock
 ├── flake.nix
 ├── main.py
