@@ -131,25 +131,6 @@ class ClientManager:
         """Get IP address for a specific client ID."""
         return self.client_ip_map.get(client_id)
 
-    def set_client_latency(self, ip: str, latency: int) -> None:
-        """Set latency for a specific client IP."""
-        if ip in self.ip_latency_map:
-            self.ip_latency_map[ip] = latency
-            self.logger.debug(f"Set latency for {ip} to {latency}ms")
-        else:
-            self.logger.warning(f"Attempted to set latency for unknown IP {ip}")
-
-    def clear_all_clients(self) -> None:
-        """Clear all client data."""
-        self.ip_latency_map.clear()
-        self.client_ip_map.clear()
-        self.player_count = 0
-        self.logger.info("Cleared all client data")
-
-    def get_client_list(self) -> List[str]:
-        """Return list of connected client IPs."""
-        return list(self.ip_latency_map.keys())
-
     def get_human_clients(self) -> List[str]:
         """Return list of human client IPs."""
         human_ips = []
@@ -158,14 +139,6 @@ class ClientManager:
                 human_ips.append(self.client_ip_map[client_id])
         return human_ips
 
-    def get_bot_clients(self) -> List[str]:
-        """Return list of bot client names."""
-        bot_names = []
-        for client_id, client_type in self.client_type_map.items():
-            if client_type == "BOT" and client_id in self.client_name_map:
-                bot_names.append(self.client_name_map[client_id])
-        return bot_names
-
     def get_human_count(self) -> int:
         """Return current number of human players."""
         return self.human_count
@@ -173,10 +146,6 @@ class ClientManager:
     def get_bot_count(self) -> int:
         """Return current number of bot players."""
         return self.bot_count
-
-    def is_bot(self, client_id: int) -> bool:
-        """Check if a client is a bot."""
-        return self.client_type_map.get(client_id, "") == "BOT"
 
     def set_obs_status(self, ip: str, connected: bool) -> None:
         """Set OBS connection status for a client IP."""

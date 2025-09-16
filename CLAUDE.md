@@ -5,14 +5,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Agent Instruction.
 
-- You must only go for simple implementation 
+- Strictly do what been told to do not do more.
+- You must focus on one task at a time.
+- You must only go for simple implementation.
 - Do not over complicate.
-- Do not comment for the obvious method that do that think. Use comment when it has to be there.
+- Do not comment for the obvious method that do that think.
 - Do not comment code but remove it completely.
-- Only do what been told to do not do more.
 - Your implementation should be as simple as possible.
 - Always ask for clarification for better context.
-- Only focus on task at a time.
 
 ## Project Overview
 This is an OpenArena (OA) game server management system designed for network latency experiments and performance monitoring. The project is undergoing refactoring from a procedural script (`server_script.py`) to a modern OOP architecture for better modularity, extensibility, and integration with external systems.
@@ -61,16 +61,14 @@ This is an OpenArena (OA) game server management system designed for network lat
 ### Development and Testing
 ```bash
 # Install dependencies
-uv sync  # or pip install -e .
+uv sync  # On init
+uv add websockets 
 
 # Run the refactored OOP server
-python main.py
+uv run main.py
 
 # Run the legacy procedural server (for reference)
-python server_script.py --interface enp1s0 --bots 4 --difficulty 3
-
-# Install Node.js dependencies (Claude Code integration)
-pnpm install
+uv run server_script.py --interface enp1s0 --bots 4 --difficulty 3
 ```
 
 ### Configuration Management

@@ -1,15 +1,3 @@
-"""
-Refactored Server - Core OpenArena server process management.
-
-This refactored version focuses only on core server responsibilities:
-- Server process lifecycle management
-- Command sending and message reading
-- Message processing coordination
-- Component orchestration
-
-All specialized logic has been extracted to dedicated managers.
-"""
-
 import asyncio
 import logging
 import subprocess
@@ -151,12 +139,10 @@ class Server:
     def dispose(self):
         """Shut down the server process gracefully."""
         self.logger.info("Starting graceful server shutdown...")
-        self._shutdown_event.set()
 
-        # Cancel all active async tasks
+        self._shutdown_event.set()
         self._cancel_all_async_tasks()
 
-        # Cancel any ongoing bot addition tasks
         self.bot_manager.reset_bot_state()
 
         if self._process and self._process.poll() is None:
@@ -186,7 +172,6 @@ class Server:
             except Exception as e:
                 self.logger.error(f"Error cancelling task {task}: {e}")
 
-        # Wait a bit for tasks to clean up
         timeout = 3.0
         start_time = time.time()
         while self._active_tasks and (time.time() - start_time) < timeout:
@@ -197,16 +182,6 @@ class Server:
             self.logger.warning(f"{remaining_tasks} async tasks did not cancel within {timeout}s")
         else:
             self.logger.info("All async tasks cancelled successfully")
-
-    def configure_bots(self, bot_config):
-        """Configure bot settings from command line arguments."""
-        self.bot_manager.configure_bots(bot_config)
-        self.logger.info(f"Bot configuration updated: {bot_config}")
-
-    def configure_interface(self, interface: str):
-        """Configure network interface for latency control."""
-        self.latency_manager.set_interface(interface)
-        self.logger.info(f"Network interface set to: {interface}")
 
     def set_async_loop(self, loop: asyncio.AbstractEventLoop):
         """Set the async event loop for OBS operations."""
@@ -255,8 +230,6 @@ class Server:
             self._handle_client_connecting(parsed_message)
         elif parsed_message.message_type == MessageType.CLIENT_DISCONNECT:
             self._handle_client_disconnect(parsed_message)
-        elif parsed_message.message_type == MessageType.GAME_INITIALIZATION:
-            self._handle_game_initialization(parsed_message)
         elif parsed_message.message_type == MessageType.MATCH_END_FRAGLIMIT:
             self._handle_match_end_fraglimit(parsed_message)
         elif parsed_message.message_type == MessageType.WARMUP_STATE:
@@ -316,23 +289,6 @@ class Server:
         if result and result.get("experiment_finished"):
             self.logger.info("Experiment completed after fraglimit hit")
 
-    def _handle_game_initialization(self, parsed_message):
-        """Handle game initialization event - waiting to see if warmup or match follows."""
-        self.logger.info("Game Initialization detected - determining initialization type")
-
-        # Track game initialization
-        result = self.game_state_manager.handle_game_initialization_detected()
-        if result and "actions" in result:
-            self.logger.debug("Game initialization tracked")
-
-        self.send_command("say Game initializing...")
-
-        # Check if we should start warmup even at initialization
-        if self.game_state_manager.current_state.name == "WAITING":
-            if self.game_state_manager.should_start_warmup(self.client_manager, self.obs_connection_manager.obs_manager):
-                self.logger.info("Starting warmup at initialization due to insufficient human players")
-                self.game_config_manager.start_warmup_phase()
-
     def _handle_warmup_state(self, parsed_message):
         """Handle warmup state transition."""
         warmup_info = parsed_message.data.get("warmup_info", "")
@@ -351,17 +307,14 @@ class Server:
                 "add_bots_async"
             )
 
-        # Check if warmup should continue or if we can proceed to match
         human_count = self.client_manager.get_human_count()
         obs_status = self.game_state_manager.get_obs_status(self.obs_connection_manager.obs_manager, self.client_manager)
 
         if human_count >= self.nplayers_threshold and (human_count == 0 or obs_status["all_connected"]):
-            # Conditions met - disable warmup and let match start
             self.send_command("set g_doWarmup 0")
             self.send_command("say All players connected and OBS ready - starting match!")
             self.logger.info("Warmup conditions satisfied - disabling warmup to start match")
         else:
-            # Keep warmup active by restarting if needed
             reasons = []
             if human_count < self.nplayers_threshold:
                 reasons.append(f"players {human_count}/{self.nplayers_threshold}")
@@ -371,7 +324,6 @@ class Server:
             self.send_command(f"say Warmup continues - waiting for: {', '.join(reasons)}")
             self.logger.info(f"Warmup continues due to: {', '.join(reasons)}")
 
-            # Restart warmup with fresh timer
             self.game_config_manager.restart_warmup()
 
     def _process_match_end_actions(self, actions):
@@ -491,7 +443,6 @@ class Server:
         if current_state.name == "WAITING":
             self.send_command(f"say WAITING ROOM: {human_count}/{self.nplayers_threshold} players connected")
 
-            # Check if we should start warmup
             if self.game_state_manager.should_start_warmup(self.client_manager, self.obs_connection_manager.obs_manager):
                 self.logger.info("Starting warmup due to player threshold or incomplete OBS connections")
                 self.game_config_manager.start_warmup_phase()
@@ -521,7 +472,7 @@ class Server:
                         else:
                             self.logger.debug("Experiment marked as finished but no human players - continuing to run")
 
-                time.sleep(0.01)  # Prevent CPU spinning
+                time.sleep(0.01)
 
         except KeyboardInterrupt:
             self.logger.info("Server loop interrupted by user")

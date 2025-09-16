@@ -35,7 +35,6 @@ class MessageProcessor:
         self.send_command = send_command_callback
         self.logger = logging.getLogger(__name__)
         
-        # Message patterns
         self.patterns = {
             MessageType.CLIENT_CONNECTING: re.compile(r"^Client ([0-9]+) connecting with ([0-9]+) challenge ping$"),
             MessageType.CLIENT_DISCONNECT: re.compile(r"^ClientDisconnect: ([0-9]+)$"),
@@ -45,7 +44,6 @@ class MessageProcessor:
             MessageType.SHUTDOWN_GAME: re.compile(r"^ShutdownGame:\s*(.*)$")
         }
         
-        # Track status parsing state
         self._parsing_status = False
         self._status_lines = []
         self._status_line_count = 0
@@ -53,7 +51,6 @@ class MessageProcessor:
         self._status_client_count = 0
         self._seen_separator = False
         
-        # Track recent game events for context
         self._recent_fraglimit_hit = False
         self._recent_game_initialization = False
     
@@ -88,7 +85,6 @@ class MessageProcessor:
         if match:
             return self._handle_shutdown_game(raw_message, match)
         
-        # Check for status header line to start status parsing
         if "num score ping name" in raw_message and "address" in raw_message:
             self.logger.debug(f"[STATUS] Detected status header, starting status parsing")
             self._parsing_status = True
@@ -141,7 +137,6 @@ class MessageProcessor:
         """Handle game initialization message."""
         self.logger.info("Game initialization detected - waiting to determine if warmup or match")
         
-        # Set flag to track that we just saw a game initialization
         self._recent_game_initialization = True
         
         return ParsedMessage(
@@ -157,7 +152,6 @@ class MessageProcessor:
         """Handle fraglimit hit message."""
         self.logger.info("Fraglimit hit detected - match ended")
         
-        # Set flag for upcoming ShutdownGame message
         self._recent_fraglimit_hit = True
         
         return ParsedMessage(
@@ -170,14 +164,11 @@ class MessageProcessor:
         """Handle warmup state message."""
         warmup_info = match.group(1).strip() if match.group(1) else ""
         
-        # Check if this follows a recent game initialization
         initialization_type = "warmup_initialization" if self._recent_game_initialization else "warmup_only"
         
         self.logger.info(f"Warmup state detected: '{warmup_info}' (type: {initialization_type})")
         
-        # Clear fraglimit flag when warmup starts
         self._recent_fraglimit_hit = False
-        # Clear game initialization flag after determination
         self._recent_game_initialization = False
         
         return ParsedMessage(
@@ -196,12 +187,10 @@ class MessageProcessor:
         """Handle shutdown game message."""
         shutdown_info = match.group(1).strip() if match.group(1) else ""
         
-        # Determine if this is end of match or end of warmup based on recent events
         is_match_end = self._recent_fraglimit_hit
         if self._recent_fraglimit_hit:
             event_type = "match_end"
             self.logger.info("ShutdownGame after fraglimit hit - match ended")
-            # Reset flag after processing
             self._recent_fraglimit_hit = False
         else:
             event_type = "warmup_end"
@@ -223,31 +212,25 @@ class MessageProcessor:
         
         self.logger.debug(f"[STATUS] Line {self._status_line_count}: '{raw_message}'")
         
-        # Empty line signals end of status output (traditional exit)
         if len(raw_message) == 0:
             self.logger.info(f"[STATUS] Empty line detected, ending status parsing")
             return self._complete_status_parsing()
         
         self._status_lines.append(raw_message)
         
-        # Check for separator line (indicates client data will follow)
         if raw_message.startswith("---"):
             self.logger.debug(f"[STATUS] Found separator line, client data starts next")
             self._seen_separator = True
             return ParsedMessage(MessageType.STATUS_LINE, raw_message)
         
-        # Check for map line
         if raw_message.startswith("map:"):
             self.logger.debug(f"[STATUS] Found map line: {raw_message}")
             return ParsedMessage(MessageType.STATUS_LINE, raw_message)
         
-        # Skip header line
         if raw_message.startswith("num score ping"):
             return ParsedMessage(MessageType.STATUS_LINE, raw_message)
         
-        # After separator, check for client data lines
         if self._seen_separator:
-            # Client lines should match pattern: optional spaces + number (client ID)
             if re.match(r'^\s*\d+\s+', raw_message):
                 client_data = self._extract_client_from_status_line(raw_message)
                 if client_data:
@@ -264,7 +247,6 @@ class MessageProcessor:
                 else:
                     self.logger.debug(f"[STATUS] Could not parse client line: '{raw_message}'")
             else:
-                # Line doesn't match client pattern - we've left the status table
                 self.logger.info(f"[STATUS] Non-client line detected, ending status parsing: '{raw_message}'")
                 return self._complete_status_parsing_and_reprocess(raw_message)
         
@@ -375,9 +357,6 @@ class MessageProcessor:
         self._parsing_status = False
         client_data = self._extract_client_data_from_status()
         
-        # Send the status completion message first
-        # Note: This creates a potential issue where the non-status message gets lost
-        # We'll need to handle this in the server by having it reprocess this message
         if client_data:
             self.logger.debug(f"[STATUS] Sending status complete with {len(client_data)} clients")
             return ParsedMessage(
@@ -389,7 +368,6 @@ class MessageProcessor:
                 }
             )
         else:
-            # No client data found, just return the message as unknown
             return ParsedMessage(MessageType.UNKNOWN, raw_message)
     
     def _is_valid_ip(self, ip: str) -> bool:
@@ -400,22 +378,3 @@ class MessageProcessor:
                    all(0 <= int(part) <= 255 for part in parts))
         except (ValueError, AttributeError):
             return False
-    
-    def reset_status_parsing(self) -> None:
-        """Reset status parsing state."""
-        self._parsing_status = False
-        self._status_lines.clear()
-        self._status_line_count = 0
-        self._status_client_count = 0
-        self._seen_separator = False
-    
-    def is_parsing_status(self) -> bool:
-        """Check if currently parsing status output."""
-        return self._parsing_status
-    
-    def get_pattern_info(self) -> Dict[str, str]:
-        """Get information about message patterns for debugging."""
-        return {
-            msg_type.name: pattern.pattern 
-            for msg_type, pattern in self.patterns.items()
-        }

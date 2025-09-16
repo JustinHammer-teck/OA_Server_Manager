@@ -37,7 +37,6 @@ class GameStateManager:
             result["state_changed"] = True
             self.logger.info("State tracked: WAITING -> WARMUP")
         elif self.current_state == GameState.WARMUP:
-            # Warmup restarted - increment warmup round counter
             self.warmup_round_count += 1
             self.logger.info(f"Warmup restarted (round {self.warmup_round_count})")
         else:
@@ -60,15 +59,6 @@ class GameStateManager:
         else:
             self.logger.warning(f"Unexpected match start from state {self.current_state}")
 
-        return result
-
-    def handle_game_initialization_detected(self) -> dict:
-        """React to server game initialization - wait for warmup or match signal."""
-        result = {
-            "actions": [],
-        }
-        
-        self.logger.info("Game initialization detected - waiting for server direction")
         return result
 
     def handle_fraglimit_detected(self) -> dict:
