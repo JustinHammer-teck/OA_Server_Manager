@@ -331,3 +331,20 @@ class GameConfigManager:
         except Exception as e:
             self.logger.error(f"Error starting warmup phase: {e}")
             return False
+
+    def restart_warmup(self) -> bool:
+        """
+        Restart warmup with fresh timer when conditions aren't met.
+
+        Returns:
+            True if warmup was restarted successfully
+        """
+        try:
+            self.send_command(f"set g_warmup {settings.warmup_time}")
+            self.send_command("set g_doWarmup 1")
+            self.send_command("map_restart")
+            self.logger.info(f"Restarted warmup with {settings.warmup_time}s timer")
+            return True
+        except Exception as e:
+            self.logger.error(f"Error restarting warmup: {e}")
+            return False

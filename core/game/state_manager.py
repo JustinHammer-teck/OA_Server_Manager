@@ -36,6 +36,10 @@ class GameStateManager:
             self.warmup_round_count = 0
             result["state_changed"] = True
             self.logger.info("State tracked: WAITING -> WARMUP")
+        elif self.current_state == GameState.WARMUP:
+            # Warmup restarted - increment warmup round counter
+            self.warmup_round_count += 1
+            self.logger.info(f"Warmup restarted (round {self.warmup_round_count})")
         else:
             self.logger.warning(f"Unexpected warmup from state {self.current_state}")
 

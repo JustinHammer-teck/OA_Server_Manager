@@ -331,8 +331,8 @@ class Server:
             self.send_command(f"say Warmup continues - waiting for: {', '.join(reasons)}")
             self.logger.info(f"Warmup continues due to: {', '.join(reasons)}")
 
-            # Re-enable warmup if it got disabled
-            self.send_command("set g_doWarmup 1")
+            # Restart warmup with fresh timer
+            self.game_config_manager.restart_warmup()
 
     def _process_match_end_actions(self, actions):
         if "rotate_latency" in actions:
