@@ -7,12 +7,10 @@ from subprocess import PIPE, Popen
 from typing import Optional
 
 import core.utils.settings as settings
-from core.game.bot_manager import BotManager
-from core.network.client_manager import ClientManager
+from core.network.network_manager import NetworkManager
+from core.game.game_manager import GameManager
 from core.utils.display_utils import DisplayUtils
-from core.game.config_manager import GameConfigManager
 from core.game.state_manager import GameStateManager
-from core.network.latency_manager import LatencyManager
 from core.messaging.message_processor import MessageProcessor, MessageType
 from core.obs.connection_manager import OBSConnectionManager
 
@@ -37,48 +35,24 @@ class Server:
         self._active_tasks = set()
         self._shutdown_event = threading.Event()
 
-        self.client_manager = ClientManager()
+        self.network_manager = NetworkManager(interface=settings.interface, send_command_callback=self.send_command)
+        self.game_manager = GameManager(send_command_callback=self.send_command)
         self.game_state_manager = GameStateManager(self.send_command)
         self.message_processor = MessageProcessor(self.send_command)
         self.display_utils = DisplayUtils()
 
-        self._init_specialized_managers()
-
-    def _init_specialized_managers(self):
-        """Initialize all specialized management components."""
-
-        obs_port = int(settings.obs_port) if hasattr(settings, "obs_port") else 4455
-        obs_password = (
-            settings.obs_password if hasattr(settings, "obs_password") else None
-        )
-        obs_timeout = (
-            int(settings.obs_connection_timeout)
-            if hasattr(settings, "obs_connection_timeout")
-            else 30
-        )
-
         self.obs_connection_manager = OBSConnectionManager(
-            obs_port=obs_port,
-            obs_password=obs_password,
-            obs_timeout=obs_timeout,
+            obs_port=int(getattr(settings, "obs_port", 4455)),
+            obs_password=getattr(settings, "obs_password", None),
+            obs_timeout=int(getattr(settings, "obs_connection_timeout", 30)),
             send_command_callback=self.send_command,
-        )
-
-        self.bot_manager = BotManager(send_command_callback=self.send_command)
-
-        self.game_config_manager = GameConfigManager(
-            send_command_callback=self.send_command
-        )
-
-        self.latency_manager = LatencyManager(
-            interface="enp1s0", send_command_callback=self.send_command
         )
 
     def start_server(self):
         """Start the OpenArena dedicated server process."""
         self.logger.info("Starting OpenArena server process")
 
-        startup_config = self.game_config_manager.apply_startup_config()
+        startup_config = self.game_manager.apply_startup_config()
 
         server_args = [
             "oa_ded",
@@ -119,9 +93,8 @@ class Server:
 
     def _initialize_server(self):
         """Initialize server with bot and game settings."""
-        self.bot_manager.initialize_bot_settings(self.nplayers_threshold)
-
-        self.game_config_manager.apply_default_config()
+        self.game_manager.initialize_bot_settings(self.nplayers_threshold)
+        self.game_manager.apply_default_config()
 
     def send_command(self, command: str):
         """Send a command to the server's stdin."""
@@ -143,7 +116,7 @@ class Server:
         self._shutdown_event.set()
         self._cancel_all_async_tasks()
 
-        self.bot_manager.reset_bot_state()
+        self.game_manager.reset_bot_state()
 
         if self._process and self._process.poll() is None:
             self._process.terminate()
@@ -247,7 +220,7 @@ class Server:
     def _handle_client_disconnect(self, parsed_message):
         """Handle client disconnection event."""
         client_id = parsed_message.data["client_id"]
-        client_ip = self.client_manager.get_client_ip(client_id)
+        client_ip = self.network_manager.get_client_ip(client_id)
 
         if client_ip and self.obs_connection_manager.is_client_connected(client_ip):
             self._create_async_task_safe(
@@ -255,9 +228,9 @@ class Server:
                 f"disconnect_client_{client_ip}"
             )
 
-        self.client_manager.remove_client(client_id)
+        self.network_manager.remove_client(client_id)
 
-        current_players = self.client_manager.get_client_count()
+        current_players = self.network_manager.get_client_count()
         self.logger.info(
             f"Client {client_id} disconnected. Current players: {current_players}"
         )
@@ -267,7 +240,7 @@ class Server:
 
         if current_players > 0:
             self.display_utils.display_client_table(
-                self.client_manager, "CLIENT STATUS AFTER DISCONNECTION"
+                self.network_manager, "CLIENT STATUS AFTER DISCONNECTION"
             )
 
     def _handle_match_end_fraglimit(self, parsed_message):
@@ -298,17 +271,17 @@ class Server:
         if result.get("state_changed"):
             self.logger.info("Game state updated to WARMUP")
 
-        if (self.bot_manager.should_add_bots()
-            and not self.bot_manager.are_bots_added()
-            and not self.bot_manager.is_bot_addition_in_progress()):
+        if (self.game_manager.should_add_bots()
+            and not self.game_manager.are_bots_added()
+            and not self.game_manager.is_bot_addition_in_progress()):
             self.logger.info("Starting async bot addition")
             self._create_async_task_safe(
-                self.bot_manager.add_bots_to_server_async(),
+                self.game_manager.add_bots_to_server_async(),
                 "add_bots_async"
             )
 
-        human_count = self.client_manager.get_human_count()
-        obs_status = self.game_state_manager.get_obs_status(self.obs_connection_manager.obs_manager, self.client_manager)
+        human_count = self.network_manager.get_human_count()
+        obs_status = self.game_state_manager.get_obs_status(self.obs_connection_manager.obs_manager, self.network_manager)
 
         if human_count >= self.nplayers_threshold and (human_count == 0 or obs_status["all_connected"]):
             self.send_command("set g_doWarmup 0")
@@ -324,16 +297,16 @@ class Server:
             self.send_command(f"say Warmup continues - waiting for: {', '.join(reasons)}")
             self.logger.info(f"Warmup continues due to: {', '.join(reasons)}")
 
-            self.game_config_manager.restart_warmup()
+            self.game_manager.restart_warmup()
 
     def _process_match_end_actions(self, actions):
         if "rotate_latency" in actions:
-            self.latency_manager.rotate_latencies(self.client_manager)
+            self.network_manager.rotate_latencies()
             self.logger.info("Latency rotated for next match")
 
         if "restart_match" in actions:
             time.sleep(2)
-            self.game_config_manager.restart_map()
+            self.game_manager.restart_map()
             self.logger.info("Match restarted")
 
     def _handle_shutdown_game(self, parsed_message):
@@ -363,8 +336,8 @@ class Server:
                     )
                 
                 if "apply_latency" in actions:
-                    if self.latency_manager.is_enabled():
-                        self.latency_manager.apply_latency_rules(self.client_manager)
+                    if self.network_manager.is_enabled():
+                        self.network_manager.apply_latency_rules()
                     else:
                         self.logger.info("Latency control disabled, skipping latency application")
             
@@ -396,11 +369,11 @@ class Server:
             
             if client_type == "HUMAN" and client_ip:
                 latency = settings.latencies[
-                    len(self.client_manager.ip_latency_map) % len(settings.latencies)
+                    len(self.network_manager.ip_latency_map) % len(settings.latencies)
                 ]
 
-                if client_ip not in self.client_manager.ip_latency_map:
-                    self.client_manager.add_client(
+                if client_ip not in self.network_manager.ip_latency_map:
+                    self.network_manager.add_client(
                         client_id=client_id,
                         ip=client_ip,
                         latency=latency,
@@ -413,7 +386,7 @@ class Server:
                     self.logger.debug(f"[CLIENT] HUMAN client IP {client_ip} already tracked")
                     
             elif client_type == "BOT":
-                self.client_manager.add_client(
+                self.network_manager.add_client(
                     client_id=client_id,
                     ip=None,
                     latency=None,
@@ -426,14 +399,14 @@ class Server:
             for ip in newly_added_humans:
                 self._create_async_task_safe(
                     self.obs_connection_manager.connect_single_client_immediately(
-                        ip, self.client_manager
+                        ip, self.network_manager
                     ),
                     f"connect_client_{ip}"
                 )
 
-        current_players = self.client_manager.get_client_count()
-        human_count = self.client_manager.get_human_count()
-        bot_count = self.client_manager.get_bot_count()
+        current_players = self.network_manager.get_client_count()
+        human_count = self.network_manager.get_human_count()
+        bot_count = self.network_manager.get_bot_count()
         current_state = self.game_state_manager.get_current_state()
         
         self.logger.info(
@@ -443,12 +416,12 @@ class Server:
         if current_state.name == "WAITING":
             self.send_command(f"say WAITING ROOM: {human_count}/{self.nplayers_threshold} players connected")
 
-            if self.game_state_manager.should_start_warmup(self.client_manager, self.obs_connection_manager.obs_manager):
+            if self.game_state_manager.should_start_warmup(self.network_manager, self.obs_connection_manager.obs_manager):
                 self.logger.info("Starting warmup due to player threshold or incomplete OBS connections")
-                self.game_config_manager.start_warmup_phase()
+                self.game_manager.start_warmup_phase()
 
         if current_players > 0:
-            self.display_utils.display_client_table(self.client_manager, "CLIENT STATUS UPDATE")
+            self.display_utils.display_client_table(self.network_manager, "CLIENT STATUS UPDATE")
 
             round_info = self.game_state_manager.get_round_info()
             self.logger.info(f"Experiment status: {round_info}")
@@ -465,7 +438,7 @@ class Server:
                     self.process_server_message(message)
 
                     if self.game_state_manager.is_experiment_finished():
-                        human_count = self.client_manager.get_human_count()
+                        human_count = self.network_manager.get_human_count()
                         if human_count > 0:
                             self.logger.info("Experiment completed, exiting loop")
                             break

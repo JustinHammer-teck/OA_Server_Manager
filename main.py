@@ -23,6 +23,29 @@ async_loop = None
 interface = settings.interface
 
 
+def cleanup():
+    """Centralized cleanup function."""
+    if async_loop and async_loop.is_running():
+        try:
+            future = asyncio.run_coroutine_threadsafe(
+                server.cleanup_obs_async(), async_loop
+            )
+            future.result(timeout=5)
+        except Exception as e:
+            logger.error(f"Error cleaning up OBS connections: {e}")
+
+    try:
+        NetworkUtils.dispose(interface)
+        logger.info("Network rules cleaned up")
+    except Exception as e:
+        logger.error(f"Error cleaning up network rules: {e}")
+
+    server.dispose()
+
+    if async_loop and async_loop.is_running():
+        async_loop.call_soon_threadsafe(async_loop.stop)
+
+
 def signal_handler(sig, frame):
     """Handle exit signals (SIGINT, SIGTERM) cleanly."""
     signal_name = "SIGTERM" if sig == signal.SIGTERM else "SIGINT"
@@ -37,26 +60,7 @@ def signal_handler(sig, frame):
     timeout_thread.start()
 
     try:
-        if async_loop and async_loop.is_running():
-            try:
-                future = asyncio.run_coroutine_threadsafe(
-                    server.cleanup_obs_async(), async_loop
-                )
-                future.result(timeout=5)
-            except Exception as e:
-                logger.error(f"Error cleaning up OBS connections: {e}")
-
-        try:
-            NetworkUtils.dispose(interface)
-            logger.info("Network rules cleaned up")
-        except Exception as e:
-            logger.error(f"Error cleaning up network rules: {e}")
-
-        server.dispose()
-
-        if async_loop and async_loop.is_running():
-            async_loop.call_soon_threadsafe(async_loop.stop)
-
+        cleanup()
         logger.info("Graceful shutdown completed")
         sys.exit(0)
 
@@ -115,26 +119,8 @@ def main():
         logger.critical(f"An unhandled exception occurred: {e}", exc_info=True)
     finally:
         logger.info("Application is shutting down.")
-
+        cleanup()
         if async_loop and async_loop.is_running():
-            try:
-                future = asyncio.run_coroutine_threadsafe(
-                    server.cleanup_obs_async(), async_loop
-                )
-                future.result(timeout=5)
-            except Exception as e:
-                logger.error(f"Error cleaning up OBS connections: {e}")
-
-        try:
-            NetworkUtils.dispose(interface)
-            logger.info("Network rules cleaned up")
-        except Exception as e:
-            logger.error(f"Error cleaning up network rules: {e}")
-
-        server.dispose()
-
-        if async_loop and async_loop.is_running():
-            async_loop.call_soon_threadsafe(async_loop.stop)
             async_thread.join(timeout=2)
 
 
