@@ -285,3 +285,36 @@ class OBSConnectionManager:
     def get_connected_clients(self) -> List[str]:
         """Get list of connected client IPs."""
         return self.obs_manager.get_connected_clients()
+
+    def check_and_restart_if_incomplete_obs(self, client_manager, game_state_manager) -> bool:
+        """
+        Check if all human users are connected to OBS, and send g_restarted "1" if not.
+
+        Args:
+            client_manager: ClientManager instance to get human clients
+            game_state_manager: GameStateManager instance for OBS status checking
+
+        Returns:
+            True if restart command was sent, False if all users are connected
+        """
+        try:
+            obs_status = game_state_manager.get_obs_status(self.obs_manager, client_manager)
+
+            if not obs_status["all_connected"] and obs_status["total"] > 0:
+                self.logger.warning(
+                    f"Not all human users connected to OBS ({obs_status['connected']}/{obs_status['total']}). "
+                    "Sending g_restarted \"1\" to server."
+                )
+
+                if self.send_command:
+                    self.send_command('g_restarted "1"')
+                    self.send_command(f"say OBS connection incomplete: {obs_status['connected']}/{obs_status['total']} connected - restarting")
+
+                return True
+            else:
+                self.logger.info(f"All human users connected to OBS ({obs_status['connected']}/{obs_status['total']})")
+                return False
+
+        except Exception as e:
+            self.logger.error(f"Error checking OBS connections for restart: {e}", exc_info=True)
+            return False

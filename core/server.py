@@ -305,8 +305,16 @@ class Server:
         if self.bot_manager.should_add_bots() and not self.bot_manager.are_bots_added():
             self.logger.info("Adding bots")
             self.bot_manager.add_bots_to_server()
-        
-        self.send_command("say Warmup phase active!")
+
+        # Check if all human users are connected to OBS, restart if not
+        restart_sent = self.obs_connection_manager.check_and_restart_if_incomplete_obs(
+            self.client_manager, self.game_state_manager
+        )
+
+        if not restart_sent:
+            self.send_command("say Warmup phase active!")
+        else:
+            self.logger.info("Warmup restart requested due to incomplete OBS connections")
 
     def _handle_shutdown_game(self, parsed_message):
         """Handle game shutdown - either warmup end or match end."""
