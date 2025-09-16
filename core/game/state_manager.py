@@ -2,7 +2,7 @@ import logging
 from enum import Enum
 from typing import Callable
 
-import core.settings as settings
+import core.utils.settings as settings
 
 
 class GameState(Enum):

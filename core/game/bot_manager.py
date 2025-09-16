@@ -8,7 +8,7 @@ import logging
 import time
 from typing import List, Dict, Optional, Callable
 
-import core.settings as settings
+import core.utils.settings as settings
 
 
 class BotManager:

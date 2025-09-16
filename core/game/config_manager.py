@@ -6,7 +6,7 @@ Extracted from server.py to separate game configuration concerns.
 import logging
 from typing import Callable, Dict, Any
 
-import core.settings as settings
+import core.utils.settings as settings
 
 
 class GameConfigManager:
