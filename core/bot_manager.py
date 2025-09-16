@@ -22,16 +22,17 @@ class BotManager:
     def __init__(self, send_command_callback: Callable[[str], None]):
         """
         Initialize Bot Manager.
-        
+
         Args:
             send_command_callback: Function to send commands to game server
         """
         self.send_command = send_command_callback
         self.logger = logging.getLogger(__name__)
-        
+
         self._bots_added = False
         self._bot_config: Optional[Dict] = None
         self._bot_addition_task: Optional[asyncio.Task] = None
+        self._bot_addition_in_progress = False
     
     def configure_bots(self, bot_config: Dict) -> None:
         """
@@ -138,7 +139,7 @@ class BotManager:
         Add bots to the server asynchronously without blocking the main thread.
 
         Returns:
-            True if bot addition was started successfully, False otherwise
+            True if bot addition was successful, False otherwise
         """
         if self._bots_added:
             self.logger.debug("Bots already added, skipping")
@@ -148,19 +149,18 @@ class BotManager:
             self.logger.info("Bot addition disabled or count is 0")
             return False
 
-        # Cancel any existing bot addition task
-        if self._bot_addition_task and not self._bot_addition_task.done():
-            self.logger.info("Cancelling existing bot addition task")
-            self._bot_addition_task.cancel()
-            try:
-                await self._bot_addition_task
-            except asyncio.CancelledError:
-                pass
+        if self._bot_addition_in_progress:
+            self.logger.info("Bot addition already in progress")
+            return False
 
-        # Start new bot addition task
-        self._bot_addition_task = asyncio.create_task(self._add_bots_async_impl())
-        self.logger.info("Started asynchronous bot addition")
-        return True
+        # Directly await the bot addition implementation
+        self.logger.info("Starting asynchronous bot addition")
+        self._bot_addition_in_progress = True
+        try:
+            result = await self._add_bots_async_impl()
+            return result
+        finally:
+            self._bot_addition_in_progress = False
 
     async def _add_bots_async_impl(self) -> bool:
         """
@@ -340,14 +340,12 @@ class BotManager:
         Returns:
             True if bot addition is running
         """
-        return (
-            self._bot_addition_task is not None
-            and not self._bot_addition_task.done()
-        )
+        return self._bot_addition_in_progress
     
     def reset_bot_state(self) -> None:
         """Reset bot state (useful for server restart)."""
         self._bots_added = False
+        self._bot_addition_in_progress = False
 
         # Cancel any ongoing bot addition task
         if self._bot_addition_task and not self._bot_addition_task.done():
