@@ -147,6 +147,9 @@ class Server:
 
     def dispose(self):
         """Shut down the server process gracefully."""
+        # Cancel any ongoing bot addition tasks
+        self.bot_manager.reset_bot_state()
+
         if self._process and self._process.poll() is None:
             self._process.terminate()
             try:
@@ -302,9 +305,14 @@ class Server:
         if result.get("state_changed"):
             self.logger.info("Game state updated to WARMUP")
 
-        if self.bot_manager.should_add_bots() and not self.bot_manager.are_bots_added():
-            self.logger.info("Adding bots")
-            self.bot_manager.add_bots_to_server()
+        if (self.bot_manager.should_add_bots()
+            and not self.bot_manager.are_bots_added()
+            and not self.bot_manager.is_bot_addition_in_progress()):
+            self.logger.info("Starting async bot addition")
+            self._create_async_task_safe(
+                self.bot_manager.add_bots_to_server_async(),
+                "add_bots_async"
+            )
 
         # Check if all human users are connected to OBS, restart if not
         restart_sent = self.obs_connection_manager.check_and_restart_if_incomplete_obs(
