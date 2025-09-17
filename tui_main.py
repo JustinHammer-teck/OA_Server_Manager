@@ -106,11 +106,13 @@ class AdminApp(App):
                 server.send_command(command)
                 self.query_one("#input", Input).value = ""
 
-    async def action_quit(self) -> None:
-        confirmed = await self.push_screen_wait_for_result(QuitConfirmScreen())
-        if confirmed:
-            cleanup()
-            self.exit()
+    def action_quit(self) -> None:
+        def check_quit(confirmed: bool | None) -> None:
+            if confirmed:
+                cleanup()
+                self.exit()
+
+        self.push_screen(QuitConfirmScreen(), check_quit)
 
 def signal_handler(sig, frame):
     cleanup()
