@@ -32,7 +32,6 @@ class Server:
 
         self._process: Optional[Popen] = None
         self._async_loop: Optional[asyncio.AbstractEventLoop] = None
-        self._active_tasks = set()
         self._shutdown_event = threading.Event()
 
         self.network_manager = NetworkManager(
@@ -128,12 +127,7 @@ class Server:
             return ""
 
     def dispose(self):
-        """Shut down the server process gracefully."""
-        self.logger.info("Starting graceful server shutdown...")
-
         self._shutdown_event.set()
-        self._cancel_all_async_tasks()
-
         self.game_manager.reset_bot_state()
 
         if self._process and self._process.poll() is None:
@@ -141,80 +135,18 @@ class Server:
             try:
                 self._process.wait(timeout=5)
             except subprocess.TimeoutExpired:
-                self.logger.error(
-                    f"Cannot properly terminate process {self._process.pid}"
-                )
                 self._process.kill()
                 self._process.wait()
 
-        self.logger.info("Server process disposed successfully")
-
-    def _cancel_all_async_tasks(self):
-        """Cancel all active async tasks."""
-        if not self._active_tasks:
-            return
-
-        self.logger.info(f"Cancelling {len(self._active_tasks)} active async tasks...")
-
-        for task in list(self._active_tasks):
-            try:
-                task.cancel()
-                self.logger.debug(f"Cancelled async task: {task}")
-            except Exception as e:
-                self.logger.error(f"Error cancelling task {task}: {e}")
-
-        timeout = 3.0
-        start_time = time.time()
-        while self._active_tasks and (time.time() - start_time) < timeout:
-            time.sleep(0.1)
-
-        remaining_tasks = len(self._active_tasks)
-        if remaining_tasks > 0:
-            self.logger.warning(
-                f"{remaining_tasks} async tasks did not cancel within {timeout}s"
-            )
-        else:
-            self.logger.info("All async tasks cancelled successfully")
-
     def set_async_loop(self, loop: asyncio.AbstractEventLoop):
-        """Set the async event loop for OBS operations."""
         self._async_loop = loop
-        self.logger.debug("Async event loop set for OBS operations")
 
     async def cleanup_obs_async(self):
-        """Clean up OBS connections asynchronously."""
-        try:
-            await self.obs_connection_manager.cleanup_all()
-            self.logger.info("OBS connections cleaned up successfully")
-        except Exception as e:
-            self.logger.error(f"Error cleaning up OBS connections: {e}", exc_info=True)
+        await self.obs_connection_manager.cleanup_all()
 
-    def _create_async_task_safe(self, coro, name: str = None):
-        """Safely create an async task with exception handling."""
-        if not self._async_loop or self._shutdown_event.is_set():
-            self.logger.warning(
-                f"No async loop available or shutdown in progress for task: {name or 'unnamed'}"
-            )
-            return None
-
-        future = asyncio.run_coroutine_threadsafe(coro, self._async_loop)
-        self._active_tasks.add(future)
-
-        def handle_task_exception(future_result):
-            self._active_tasks.discard(future_result)
-            try:
-                future_result.result()
-                self.logger.debug(f"Task {name or 'unnamed'} completed successfully")
-            except asyncio.CancelledError:
-                self.logger.debug(f"Task {name or 'unnamed'} was cancelled")
-            except Exception as e:
-                self.logger.error(
-                    f"Unhandled exception in task {name or 'unnamed'}: {e}",
-                    exc_info=True,
-                )
-
-        future.add_done_callback(handle_task_exception)
-        return future
+    def _run_async(self, coro):
+        if self._async_loop and not self._shutdown_event.is_set():
+            asyncio.run_coroutine_threadsafe(coro, self._async_loop)
 
     def is_process_alive(self) -> bool:
         """Check if the server process is still running."""
@@ -223,6 +155,7 @@ class Server:
     def is_shutdown_requested(self):
         """Check if shutdown has been requested."""
         return self._shutdown_event.is_set()
+
 
     def process_server_message(self, raw_message: str):
         """Process server message using dispatch dictionary."""
@@ -259,10 +192,7 @@ class Server:
         client_ip = self.network_manager.get_client_ip(client_id)
 
         if client_ip and self.obs_connection_manager.is_client_connected(client_ip):
-            self._create_async_task_safe(
-                self.obs_connection_manager.disconnect_client(client_ip),
-                f"disconnect_{client_ip}",
-            )
+            self._run_async(self.obs_connection_manager.disconnect_client(client_ip))
 
         self.network_manager.remove_client(client_id)
         self.logger.info(
@@ -274,10 +204,7 @@ class Server:
         """Handle match end due to fraglimit hit."""
         self.logger.info("Match ended - Fraglimit hit! Stopping OBS recordings...")
 
-        self._create_async_task_safe(
-            self.obs_connection_manager.stop_match_recording(self.game_state_manager),
-            "stop_match_recording",
-        )
+        self._run_async(self.obs_connection_manager.stop_match_recording(self.game_state_manager))
 
         self.send_command("say Match ended! Recordings stopped.")
 
@@ -302,9 +229,7 @@ class Server:
             and not self.game_manager.is_bot_addition_in_progress()
         ):
             self.logger.info("Starting async bot addition")
-            self._create_async_task_safe(
-                self.game_manager.add_bots_to_server_async(), "add_bots_async"
-            )
+            self._run_async(self.game_manager.add_bots_to_server_async())
 
         human_count = self.network_manager.get_human_count()
         obs_status = self.game_state_manager.get_obs_status(
@@ -360,12 +285,7 @@ class Server:
             if result and "actions" in result:
                 actions = result["actions"]
                 if "start_match_recording" in actions:
-                    self._create_async_task_safe(
-                        self.obs_connection_manager.start_match_recording(
-                            self.game_state_manager
-                        ),
-                        "start_match_recording",
-                    )
+                    self._run_async(self.obs_connection_manager.start_match_recording(self.game_state_manager))
                 if "apply_latency" in actions:
                     if self.network_manager.is_enabled():
                         self.network_manager.apply_latency_rules()
@@ -438,12 +358,7 @@ class Server:
 
         if newly_added_humans:
             for ip in newly_added_humans:
-                self._create_async_task_safe(
-                    self.obs_connection_manager.connect_single_client_immediately(
-                        ip, self.network_manager
-                    ),
-                    f"connect_client_{ip}",
-                )
+                self._run_async(self.obs_connection_manager.connect_single_client_immediately(ip, self.network_manager))
 
         current_players = self.network_manager.get_client_count()
         human_count = self.network_manager.get_human_count()

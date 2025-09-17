@@ -76,18 +76,30 @@ class AdminApp(App):
     BINDINGS = [Binding("q", "quit", "Quit")]
 
     def compose(self) -> ComposeResult:
-        yield Log(id="log")
+        yield Horizontal(
+            Log(id="app-log"),
+            Log(id="server-log"),
+            id="log-panel"
+        )
         yield Input(placeholder="Admin command...", id="input")
 
     def on_mount(self) -> None:
         global async_thread, server_thread
 
-        log_widget = self.query_one("#log", Log)
-        handler = TUILogHandler(log_widget)
-        handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
+        app_log = self.query_one("#app-log", Log)
+        server_log = self.query_one("#server-log", Log)
 
+        app_log.border_title = "App Logs"
+        server_log.border_title = "Server Output"
+
+        # Setup app logging
+        handler = TUILogHandler(app_log)
+        handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
         logging.getLogger().addHandler(handler)
         logging.getLogger().setLevel(logging.DEBUG)
+
+        # Setup server output handler
+        server.set_output_handler(lambda msg: server_log.write_line(msg))
 
         async_thread = threading.Thread(target=run_async_loop, daemon=True)
         async_thread.start()
