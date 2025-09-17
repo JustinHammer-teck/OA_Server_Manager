@@ -10,6 +10,7 @@ class MessageType(Enum):
     CLIENT_DISCONNECT = "client_disconnect"
     GAME_INITIALIZATION = "game_initialization"
     MATCH_END_FRAGLIMIT = "match_end_fraglimit"
+    MATCH_END_TIMELIMIT = "match_end_timelimit"
     WARMUP_STATE = "warmup_state"
     SHUTDOWN_GAME = "shutdown_game"
     STATUS_LINE = "status_line"
@@ -40,6 +41,7 @@ class MessageProcessor:
             MessageType.CLIENT_DISCONNECT: re.compile(r"^ClientDisconnect: ([0-9]+)$"),
             MessageType.GAME_INITIALIZATION: re.compile(r"^------- Game Initialization -------$"),
             MessageType.MATCH_END_FRAGLIMIT: re.compile(r"^Exit: Fraglimit hit\.$"),
+            MessageType.MATCH_END_TIMELIMIT: re.compile(r"^Exit: Timelimit hit\.$"),
             MessageType.WARMUP_STATE: re.compile(r"^Warmup:\s*(.*)$"),
             MessageType.SHUTDOWN_GAME: re.compile(r"^ShutdownGame:\s*(.*)$")
         }
@@ -76,7 +78,11 @@ class MessageProcessor:
         match = self.patterns[MessageType.MATCH_END_FRAGLIMIT].match(raw_message)
         if match:
             return self._handle_fraglimit_hit(raw_message, match)
-        
+
+        match = self.patterns[MessageType.MATCH_END_TIMELIMIT].match(raw_message)
+        if match:
+            return self._handle_timelimit_hit(raw_message, match)
+
         match = self.patterns[MessageType.WARMUP_STATE].match(raw_message)
         if match:
             return self._handle_warmup_state(raw_message, match)
@@ -151,13 +157,25 @@ class MessageProcessor:
     def _handle_fraglimit_hit(self, raw_message: str, match: re.Match) -> ParsedMessage:
         """Handle fraglimit hit message."""
         self.logger.info("Fraglimit hit detected - match ended")
-        
+
         self._recent_fraglimit_hit = True
-        
+
         return ParsedMessage(
             MessageType.MATCH_END_FRAGLIMIT,
             raw_message,
             {"event": "match_ended", "reason": "fraglimit"}
+        )
+
+    def _handle_timelimit_hit(self, raw_message: str, match: re.Match) -> ParsedMessage:
+        """Handle timelimit hit message."""
+        self.logger.info("Timelimit hit detected - match ended")
+
+        self._recent_fraglimit_hit = True
+
+        return ParsedMessage(
+            MessageType.MATCH_END_TIMELIMIT,
+            raw_message,
+            {"event": "match_ended", "reason": "timelimit"}
         )
     
     def _handle_warmup_state(self, raw_message: str, match: re.Match) -> ParsedMessage:

@@ -54,6 +54,7 @@ class Server:
             MessageType.CLIENT_CONNECTING: self._on_client_connect,
             MessageType.CLIENT_DISCONNECT: self._on_client_disconnect,
             MessageType.MATCH_END_FRAGLIMIT: self._on_match_end,
+            MessageType.MATCH_END_TIMELIMIT: self._on_match_end,
             MessageType.WARMUP_STATE: self._on_warmup,
             MessageType.SHUTDOWN_GAME: self._on_shutdown,
             MessageType.STATUS_LINE: self._on_status,
@@ -205,18 +206,19 @@ class Server:
         self._update_player_status()
 
     def _on_match_end(self, msg):
-        """Handle match end due to fraglimit hit."""
-        self.logger.info("Match ended - Fraglimit hit! Stopping OBS recordings...")
+        """Handle match end due to fraglimit or timelimit hit."""
+        reason = msg.data.get("reason", "unknown")
+        self.logger.info(f"Match ended - {reason} hit! Stopping OBS recordings...")
 
         self._run_async(self.obs_connection_manager.stop_match_recording(self.game_state_manager))
 
-        self.send_command("say Match ended! Recordings stopped.")
+        self.send_command(f"say Match ended! {reason} hit. Recordings stopped.")
 
         result = self.game_state_manager.handle_fraglimit_detected()
         if result and "actions" in result:
             self._process_match_end_actions(result["actions"])
         if result and result.get("experiment_finished"):
-            self.logger.info("Experiment completed after fraglimit hit")
+            self.logger.info(f"Experiment completed after {reason} hit")
 
     def _on_warmup(self, msg):
         """Handle warmup state transition."""
