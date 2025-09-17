@@ -222,7 +222,9 @@ class OBSConnectionManager:
             self.display_utils.display_match_end(
                 round_info["current_round"], round_info["max_rounds"]
             )
-            
+
+            await asyncio.sleep(4)
+
             self.logger.info(f"Stopping recording for match {round_info['current_round']}")
             recording_results = await self.obs_manager.stop_all_recordings()
             
