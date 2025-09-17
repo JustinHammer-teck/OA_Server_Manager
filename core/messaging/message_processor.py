@@ -280,7 +280,7 @@ class MessageProcessor:
             
             if address == "bot":
                 client_type = "BOT"
-                ip_address = None
+                ip_address = "bot"
             else:
                 client_type = "HUMAN"
                 ip_address = address.split(":")[0] if ":" in address else address

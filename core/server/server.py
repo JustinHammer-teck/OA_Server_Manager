@@ -305,94 +305,52 @@ class Server:
         """Handle server status output."""
         if msg.data.get("status_complete"):
             client_data_list = msg.data.get("client_data", [])
-            self._process_discovered_clients(client_data_list)
+            for client_data in client_data_list:
+                self._process_discovered_client(client_data)
         elif msg.data.get("client_data"):
             client_data = msg.data["client_data"]
-            self.logger.debug(
-                f"Discovered client: ID={client_data.get('client_id')}, IP={client_data.get('ip')}, Type={client_data.get('type')}"
+            self._process_discovered_client(client_data)
+
+    def _process_discovered_client(self, client_data):
+        """Process individual discovered client from status output."""
+        client_id = client_data["client_id"]
+        client_name = client_data["name"]
+        client_ip = client_data["ip"]
+
+        if client_id in self.network_manager.client_type_map:
+            self.logger.debug(f"[CLIENT] Client {client_id} already tracked")
+            return
+
+        if client_ip and client_ip != "bot":
+            latency = settings.latencies[
+                len(self.network_manager.ip_latency_map) % len(settings.latencies)
+            ]
+
+            self.network_manager.add_client(
+                client_id=client_id,
+                ip=client_ip,
+                latency=latency,
+                name=client_name,
+                is_bot=False,
+            )
+            self.logger.info(
+                f"[CLIENT] New HUMAN client: ID={client_id}, Name={client_name}, IP={client_ip}, Latency={latency}ms"
+            )
+            self._run_async(self.obs_connection_manager.connect_single_client_immediately(client_ip, self.network_manager))
+
+        elif client_ip == "bot":
+            self.network_manager.add_client(
+                client_id=client_id,
+                ip=None,
+                latency=None,
+                name=client_name,
+                is_bot=True,
+            )
+            self.logger.info(
+                f"[CLIENT] BOT client: ID={client_id}, Name={client_name}"
             )
 
-    def _process_discovered_clients(self, client_data_list):
-        """Process newly discovered clients from status output."""
-        newly_added_humans = []
-
-        self.logger.info(
-            f"[CLIENT] Processing {len(client_data_list)} discovered clients"
-        )
-
-        for client_data in client_data_list:
-            client_id = client_data["client_id"]
-            client_type = client_data["type"]
-            client_name = client_data["name"]
-            client_ip = client_data["ip"]
-
-            if client_type == "HUMAN" and client_ip:
-                latency = settings.latencies[
-                    len(self.network_manager.ip_latency_map) % len(settings.latencies)
-                ]
-
-                if client_ip not in self.network_manager.ip_latency_map:
-                    self.network_manager.add_client(
-                        client_id=client_id,
-                        ip=client_ip,
-                        latency=latency,
-                        name=client_name,
-                        is_bot=False,
-                    )
-                    newly_added_humans.append(client_ip)
-                    self.logger.info(
-                        f"[CLIENT] New HUMAN client: ID={client_id}, Name={client_name}, IP={client_ip}, Latency={latency}ms"
-                    )
-                else:
-                    self.logger.debug(
-                        f"[CLIENT] HUMAN client IP {client_ip} already tracked"
-                    )
-
-            elif client_type == "BOT":
-                self.network_manager.add_client(
-                    client_id=client_id,
-                    ip=None,
-                    latency=None,
-                    name=client_name,
-                    is_bot=True,
-                )
-                self.logger.info(
-                    f"[CLIENT] BOT client: ID={client_id}, Name={client_name}"
-                )
-
-        if newly_added_humans:
-            for ip in newly_added_humans:
-                self._run_async(self.obs_connection_manager.connect_single_client_immediately(ip, self.network_manager))
-
-        current_players = self.network_manager.get_client_count()
-        human_count = self.network_manager.get_human_count()
-        bot_count = self.network_manager.get_bot_count()
-        current_state = self.game_state_manager.get_current_state()
-
-        self.logger.info(
-            f"[CLIENT] Updated player count: {current_players} total ({human_count} humans, {bot_count} bots), threshold: {self.nplayers_threshold}, state: {current_state.name}"
-        )
-
-        if current_state.name == "WAITING":
-            self.send_command(
-                f"say WAITING ROOM: {human_count}/{self.nplayers_threshold} players connected"
-            )
-
-            if self.game_state_manager.should_start_warmup(
-                self.network_manager, self.obs_connection_manager.obs_manager
-            ):
-                self.logger.info(
-                    "Starting warmup due to player threshold or incomplete OBS connections"
-                )
-                self.game_manager.start_warmup_phase()
-
-        if current_players > 0:
-            self.display_utils.display_client_table(
-                self.network_manager, "CLIENT STATUS UPDATE"
-            )
-
-            round_info = self.game_state_manager.get_round_info()
-            self.logger.info(f"Experiment status: {round_info}")
+        self._update_player_status()
 
     def run_server_loop(self):
         """Main server message processing loop."""

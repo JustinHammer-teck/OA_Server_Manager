@@ -33,7 +33,6 @@ class GameStateManager:
 
         if self.current_state == GameState.WAITING:
             self.current_state = GameState.WARMUP
-            self.warmup_round_count = 0
             result["state_changed"] = True
             self.logger.info("State tracked: WAITING -> WARMUP")
         elif self.current_state == GameState.WARMUP:
