@@ -10,6 +10,7 @@ from textual.widgets import Input, Log, Button, Label
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.binding import Binding
+from textual.message import Message
 
 import core.utils.settings as settings
 from core.network.network_utils import NetworkUtils
@@ -21,6 +22,7 @@ interface = settings.interface
 async_thread = None
 server_thread = None
 cleanup_done = False
+tui_app = None
 
 def cleanup():
     global cleanup_done
@@ -106,7 +108,11 @@ class TUILogHandler(logging.Handler):
         except Exception as e:
             print(f"TUI log handler error: {e}", file=sys.stderr)
 
-class ShutdownConfirmScreen(ModalScreen):
+class QuitRequest(Message):
+    """Message to request quit action."""
+    pass
+
+class ShutdownConfirmScreen(ModalScreen[bool]):
     def compose(self) -> ComposeResult:
         yield Vertical(
             Label("Shutdown Background Processes?", id="confirm-label"),
@@ -120,12 +126,9 @@ class ShutdownConfirmScreen(ModalScreen):
         )
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "shutdown-btn":
-            self.dismiss(True)
-        else:
-            self.dismiss(False)
+        self.dismiss(event.button.id == "shutdown-btn")
 
-class ExitConfirmScreen(ModalScreen):
+class ExitConfirmScreen(ModalScreen[bool]):
     def compose(self) -> ComposeResult:
         yield Vertical(
             Label("Processes Shutdown Complete", id="status-label"),
@@ -179,26 +182,43 @@ class AdminApp(App):
                 except Exception as e:
                     logging.error(f"Error sending command '{command}': {e}")
 
-    async def action_quit(self) -> None:
-        try:
-            shutdown_confirmed = await self.push_screen_wait_for_result(ShutdownConfirmScreen())
-            if shutdown_confirmed:
+    def action_quit(self) -> None:
+        def check_shutdown(shutdown: bool | None) -> None:
+            if shutdown:
                 cleanup()
-                await self.push_screen_wait_for_result(ExitConfirmScreen())
-                self.exit()
-        except Exception as e:
-            logging.error(f"Error during quit action: {e}")
-            self.exit()
+                def check_exit(exit_confirmed: bool | None) -> None:
+                    if exit_confirmed:
+                        self.exit()
+                self.push_screen(ExitConfirmScreen(), check_exit)
+
+        self.push_screen(ShutdownConfirmScreen(), check_shutdown)
+
+    def on_quit_request(self, message: QuitRequest) -> None:
+        """Handle quit request from signal handler."""
+        self.action_quit()
 
 def signal_handler(sig, frame):
+    global tui_app
+    if tui_app and tui_app.is_running:
+        try:
+            # Post quit request message to the TUI
+            tui_app.post_message(QuitRequest())
+            return
+        except Exception as e:
+            logging.error(f"Error posting quit request: {e}")
+
+    # Fallback to immediate cleanup if TUI is not running
     cleanup()
     sys.exit(0)
 
 def main():
+    global tui_app
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
+    signal.signal(signal.SIGQUIT, signal_handler)
 
     app = AdminApp()
+    tui_app = app
     app.run()
 
 if __name__ == "__main__":
