@@ -56,14 +56,11 @@ class OBSConnectionManager:
         try:
             self.logger.info(f"Attempting immediate OBS connection for {client_ip}")
             
-            # Cancel any existing connection task for this IP
             if client_ip in self._connection_tasks:
                 self._connection_tasks[client_ip].cancel()
             
-            # Attempt connection to this specific client
             connected = await self.obs_manager.connect_client_obs(client_ip)
             
-            # Update client manager with OBS status
             client_manager.set_obs_status(client_ip, connected)
             
             if connected:
@@ -71,7 +68,6 @@ class OBSConnectionManager:
                 if self.send_command:
                     self.send_command(f"say OBS connected for {client_ip}")
                 
-                # Display updated client table
                 print(f"\n[OBS CONNECTION SUCCESS] {client_ip}")
                 self.display_utils.display_client_table(
                     client_manager, "UPDATED CLIENT STATUS"
@@ -86,7 +82,6 @@ class OBSConnectionManager:
                     client_manager, "CLIENT STATUS - OBS CONNECTION FAILED"
                 )
                 
-                # Request client kick for failed OBS connection
                 return await self._handle_connection_failure(client_ip, client_manager)
             
             return connected
@@ -199,7 +194,6 @@ class OBSConnectionManager:
             self.logger.info(f"Starting recording for match {round_info['current_round']}")
             recording_results = await self.obs_manager.start_all_recordings()
             
-            # Log results
             for ip, success in recording_results.items():
                 if success:
                     self.logger.info(f"Recording started for {ip}")
@@ -222,11 +216,12 @@ class OBSConnectionManager:
             self.display_utils.display_match_end(
                 round_info["current_round"], round_info["max_rounds"]
             )
-            
+
+            await asyncio.sleep(4)
+
             self.logger.info(f"Stopping recording for match {round_info['current_round']}")
             recording_results = await self.obs_manager.stop_all_recordings()
             
-            # Log results
             for ip, success in recording_results.items():
                 if success:
                     self.logger.info(f"Recording stopped for {ip}")

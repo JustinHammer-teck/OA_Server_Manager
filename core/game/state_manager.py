@@ -33,14 +33,30 @@ class GameStateManager:
 
         if self.current_state == GameState.WAITING:
             self.current_state = GameState.WARMUP
-            self.warmup_round_count = 0
             result["state_changed"] = True
             self.logger.info("State tracked: WAITING -> WARMUP")
         elif self.current_state == GameState.WARMUP:
             self.warmup_round_count += 1
             self.logger.info(f"Warmup restarted (round {self.warmup_round_count})")
+        elif self.current_state == GameState.RUNNING:
+            self.current_state = GameState.WARMUP
+            result["state_changed"] = True
+            self.logger.info("State tracked: RUNNING -> WARMUP (match restarted with warmup)")
         else:
             self.logger.warning(f"Unexpected warmup from state {self.current_state}")
+
+        return result
+
+    def handle_game_initialization_detected(self) -> dict:
+        """React to game initialization - set state to RUNNING."""
+        result = {
+            "state_changed": False,
+            "actions": [],
+        }
+
+        self.current_state = GameState.RUNNING
+
+        result["state_changed"] = True
 
         return result
 
@@ -80,7 +96,7 @@ class GameStateManager:
                 )
             else:
                 result["round_completed"] = True
-                result["actions"].extend(["rotate_latency", "restart_match"])
+                result["actions"].extend(["rotate_latency"])
                 self.logger.info(f"Round {self.round_count} completed, preparing round {self.round_count + 1} (max: {self.max_rounds})")
 
         return result
@@ -95,13 +111,13 @@ class GameStateManager:
 
         if self.current_state == GameState.RUNNING:
             self.round_count += 1
-            
+
             if self.round_count > self.max_rounds:
                 result["experiment_finished"] = True
                 self.logger.info(f"Experiment finished after {self.round_count - 1} rounds")
             else:
                 result["round_completed"] = True
-                result["actions"].extend(["rotate_latency", "restart_match"])
+                result["actions"].extend(["rotate_latency"])
                 self.logger.info(f"Match ended, starting round {self.round_count}")
 
         return result
@@ -113,9 +129,9 @@ class GameStateManager:
     def get_round_info(self) -> dict:
         """Get current round information."""
         if self.current_state == GameState.RUNNING:
-            current_round = self.round_count + 1  # Round in progress
+            current_round = self.round_count + 1
         else:
-            current_round = self.round_count  # Completed rounds
+            current_round = self.round_count
             
         return {
             "current_round": current_round,
@@ -151,17 +167,3 @@ class GameStateManager:
             "total": len(human_ips),
             "all_connected": all_connected,
         }
-
-    def should_start_warmup(self, client_manager, obs_manager) -> bool:
-        """Check if warmup should start based on player count and OBS connections."""
-        if self.current_state != GameState.WAITING:
-            return False
-
-        human_count = client_manager.get_human_count()
-        obs_status = self.get_obs_status(obs_manager, client_manager)
-
-        # Start warmup if we don't have enough human players OR not all OBS connected
-        if human_count < settings.nplayers_threshold or (human_count > 0 and not obs_status["all_connected"]):
-            return True
-
-        return False

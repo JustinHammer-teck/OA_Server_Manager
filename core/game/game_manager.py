@@ -120,23 +120,21 @@ class GameManager:
             self.logger.error(f"Error setting flaglimit: {e}")
             return False
 
-    def restart_warmup(self) -> bool:
-        """Restart the warmup phase."""
+    def disable_next_round_warmup(self) -> bool:
+        """Disable Warm up for next round and send player directly to the match"""
         try:
-            self.send_command("set g_doWarmup 1")
-            self.send_command(f"set g_warmup {settings.warmup_timelimit}")
-            self.logger.info("Warmup restarted")
+            self.send_command("set g_doWarmup 0")
+            self.logger.info("Warmup disable")
             return True
         except Exception as e:
             self.logger.error(f"Error restarting warmup: {e}")
             return False
 
-    def start_warmup_phase(self) -> bool:
-        """Start the warmup phase."""
+    def set_next_round_with_warmup_phase(self) -> bool:
+        """Set the next round with a warmup phase."""
         try:
             self.send_command("set g_doWarmup 1")
-            self.send_command(f"set g_warmup {settings.warmup_timelimit}")
-            self.send_command("map_restart")
+            self.send_command(f"set g_warmup {settings.warmup_time}")
             self.logger.info("Warmup phase started")
             return True
         except Exception as e:

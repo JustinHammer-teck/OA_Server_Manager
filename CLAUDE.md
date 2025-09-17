@@ -14,7 +14,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Your implementation should be as simple as possible.
 - Always ask for clarification for better context.
 - For Textual library implementation you must call to think link "https://context7.com/websites/textual_textualize_io?topic={$search_term}" where $search_term is the example implementation for you to reference and you must use those are your implementation reference only. 
-- For Release note you must add new one at @released/ current format RELEASE_v1.${increment}.0.md If the context is mostly bug fix RELEASE_v1.${current}.${increment}.md
+- For Release note you must add new one at @releases/ current format RELEASE_v1.${increment}.0.md If the context is mostly bug fix RELEASE_v1.${current}.${increment}.md
 > example: if current release is RELEASE_v1.0.0.md the next release note should be RELEASE_v1.1.0.md, if we release a bug fix update it should be RELEASE_v1.0.1.md
 
 ## Project Overview
