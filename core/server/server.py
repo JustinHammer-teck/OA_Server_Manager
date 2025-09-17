@@ -110,15 +110,22 @@ class Server:
     def send_command(self, command: str):
         """Send a command to the server's stdin."""
         if self._process and self._process.poll() is None:
-            self.logger.debug(f"CMD_SEND: {command}")
-            self._process.stdin.write(f"{command}\r\n".encode())
-            self._process.stdin.flush()
+            try:
+                self.logger.debug(f"CMD_SEND: {command}")
+                self._process.stdin.write(f"{command}\r\n".encode())
+                self._process.stdin.flush()
+            except (BrokenPipeError, OSError) as e:
+                self.logger.error(f"Failed to send command: {e}")
 
     def read_server(self) -> str:
         """Read a message from the server's stderr."""
-        return (
-            self._process.stderr.readline().decode("utf-8", errors="replace").rstrip()
-        )
+        try:
+            return (
+                self._process.stderr.readline().decode("utf-8", errors="replace").rstrip()
+            )
+        except (OSError, ValueError) as e:
+            self.logger.error(f"Failed to read from server: {e}")
+            return ""
 
     def dispose(self):
         """Shut down the server process gracefully."""
@@ -208,6 +215,10 @@ class Server:
 
         future.add_done_callback(handle_task_exception)
         return future
+
+    def is_process_alive(self) -> bool:
+        """Check if the server process is still running."""
+        return self._process and self._process.poll() is None
 
     def is_shutdown_requested(self):
         """Check if shutdown has been requested."""

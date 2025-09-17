@@ -13,6 +13,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Do not comment code but remove it completely.
 - Your implementation should be as simple as possible.
 - Always ask for clarification for better context.
+- For Textual library implementation you must call to think link "https://context7.com/websites/textual_textualize_io?topic={$search_term}" where $search_term is the example implementation for you to reference and you must use those are your implementation reference only. 
+- For Release note you must add new one at @released/ current format RELEASE_v1.${increment}.0.md If the context is mostly bug fix RELEASE_v1.${current}.${increment}.md
+> example: if current release is RELEASE_v1.0.0.md the next release note should be RELEASE_v1.1.0.md, if we release a bug fix update it should be RELEASE_v1.0.1.md
 
 ## Project Overview
 This is an OpenArena (OA) game server management system designed for network latency experiments and performance monitoring. The project is undergoing refactoring from a procedural script (`server_script.py`) to a modern OOP architecture for better modularity, extensibility, and integration with external systems.
@@ -24,6 +27,7 @@ This is an OpenArena (OA) game server management system designed for network lat
 ├── CLAUDE.md
 ├── OA_CMDS_CONFIGS.md
 ├── README.md
+├── released
 └── core
 │   ├── game
 │   │   ├── __init__.py
