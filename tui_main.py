@@ -6,7 +6,9 @@ import sys
 import threading
 import time
 from textual.app import App, ComposeResult
-from textual.widgets import Input, Log
+from textual.widgets import Input, Log, Button, Label
+from textual.containers import Horizontal, Vertical
+from textual.screen import ModalScreen
 from textual.binding import Binding
 
 import core.utils.settings as settings
@@ -16,26 +18,60 @@ from core.server.server import Server
 server = Server()
 async_loop = None
 interface = settings.interface
+async_thread = None
+server_thread = None
+cleanup_done = False
 
 def cleanup():
+    global cleanup_done
+    if cleanup_done:
+        return
+    cleanup_done = True
+
+    logging.info("Starting cleanup...")
+
+    try:
+        server.dispose()
+    except Exception as e:
+        logging.error(f"Error disposing server: {e}")
+
     if async_loop and async_loop.is_running():
         try:
             future = asyncio.run_coroutine_threadsafe(
                 server.cleanup_obs_async(), async_loop
             )
-            future.result(timeout=5)
+            future.result(timeout=2)
         except Exception as e:
-            pass
+            logging.error(f"Error cleaning up OBS: {e}")
 
     try:
         NetworkUtils.dispose(interface)
     except Exception as e:
-        pass
-
-    server.dispose()
+        logging.error(f"Error cleaning up network: {e}")
 
     if async_loop and async_loop.is_running():
-        async_loop.call_soon_threadsafe(async_loop.stop)
+        try:
+            async_loop.call_soon_threadsafe(async_loop.stop)
+        except Exception as e:
+            logging.error(f"Error stopping async loop: {e}")
+
+    if async_thread and async_thread.is_alive():
+        try:
+            async_thread.join(timeout=2)
+            if async_thread.is_alive():
+                logging.warning("Async thread did not finish within timeout")
+        except Exception as e:
+            logging.error(f"Error joining async thread: {e}")
+
+    if server_thread and server_thread.is_alive():
+        try:
+            server_thread.join(timeout=2)
+            if server_thread.is_alive():
+                logging.warning("Server thread did not finish within timeout")
+        except Exception as e:
+            logging.error(f"Error joining server thread: {e}")
+
+    logging.info("Cleanup completed")
 
 def run_async_loop():
     global async_loop
@@ -67,8 +103,39 @@ class TUILogHandler(logging.Handler):
         try:
             msg = self.format(record)
             self.log_widget.write_line(msg)
-        except:
-            pass
+        except Exception as e:
+            print(f"TUI log handler error: {e}", file=sys.stderr)
+
+class ShutdownConfirmScreen(ModalScreen):
+    def compose(self) -> ComposeResult:
+        yield Vertical(
+            Label("Shutdown Background Processes?", id="confirm-label"),
+            Label("This will stop the server and async processes.", id="warning-label"),
+            Horizontal(
+                Button("Yes, Shutdown", variant="error", id="shutdown-btn"),
+                Button("Cancel", variant="default", id="cancel-btn"),
+                id="button-container"
+            ),
+            id="shutdown-dialog"
+        )
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "shutdown-btn":
+            self.dismiss(True)
+        else:
+            self.dismiss(False)
+
+class ExitConfirmScreen(ModalScreen):
+    def compose(self) -> ComposeResult:
+        yield Vertical(
+            Label("Processes Shutdown Complete", id="status-label"),
+            Label("You can now safely exit the application.", id="info-label"),
+            Button("Exit App", variant="success", id="exit-btn"),
+            id="exit-dialog"
+        )
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        self.dismiss(True)
 
 class AdminApp(App):
     BINDINGS = [
@@ -80,6 +147,8 @@ class AdminApp(App):
         yield Input(placeholder="Admin command...", id="input")
 
     def on_mount(self) -> None:
+        global async_thread, server_thread
+
         log_widget = self.query_one("#log", Log)
         handler = TUILogHandler(log_widget)
         handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
@@ -87,27 +156,39 @@ class AdminApp(App):
         logging.getLogger().addHandler(handler)
         logging.getLogger().setLevel(logging.DEBUG)
 
-        async_thread = threading.Thread(target=run_async_loop, daemon=True)
-        async_thread.start()
+        try:
+            async_thread = threading.Thread(target=run_async_loop, daemon=True)
+            async_thread.start()
 
-        time.sleep(0.2)
+            time.sleep(0.2)
 
-        server_thread = threading.Thread(target=run_server_thread, name="ServerThread")
-        server_thread.start()
+            server_thread = threading.Thread(target=run_server_thread, name="ServerThread")
+            server_thread.start()
+        except Exception as e:
+            logging.error(f"Error starting threads: {e}")
 
     def on_input_submitted(self, message: Input.Submitted) -> None:
         command = message.value.strip()
         if command:
             if command.lower() in ['quit', 'exit']:
-                cleanup()
-                self.exit()
+                self.action_quit()
             else:
-                server.send_command(command)
-                self.query_one("#input", Input).value = ""
+                try:
+                    server.send_command(command)
+                    self.query_one("#input", Input).value = ""
+                except Exception as e:
+                    logging.error(f"Error sending command '{command}': {e}")
 
-    def action_quit(self) -> None:
-        cleanup()
-        self.exit()
+    async def action_quit(self) -> None:
+        try:
+            shutdown_confirmed = await self.push_screen_wait_for_result(ShutdownConfirmScreen())
+            if shutdown_confirmed:
+                cleanup()
+                await self.push_screen_wait_for_result(ExitConfirmScreen())
+                self.exit()
+        except Exception as e:
+            logging.error(f"Error during quit action: {e}")
+            self.exit()
 
 def signal_handler(sig, frame):
     cleanup()

@@ -495,8 +495,6 @@ class Server:
                                 "Experiment marked as finished but no human players - continuing to run"
                             )
 
-                        break
-
                 time.sleep(0.01)
 
         except KeyboardInterrupt:
