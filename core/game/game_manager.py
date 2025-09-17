@@ -124,7 +124,7 @@ class GameManager:
         """Restart the warmup phase."""
         try:
             self.send_command("set g_doWarmup 1")
-            self.send_command(f"set g_warmup {settings.warmup_timelimit}")
+            self.send_command(f"set g_warmup {settings.warmup_time}")
             self.logger.info("Warmup restarted")
             return True
         except Exception as e:
@@ -135,8 +135,7 @@ class GameManager:
         """Start the warmup phase."""
         try:
             self.send_command("set g_doWarmup 1")
-            self.send_command(f"set g_warmup {settings.warmup_timelimit}")
-            self.send_command("map_restart")
+            self.send_command(f"set g_warmup {settings.warmup_time}")
             self.logger.info("Warmup phase started")
             return True
         except Exception as e:

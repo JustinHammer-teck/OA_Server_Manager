@@ -9,8 +9,7 @@ def get_bool_env(key, default=False):
     return os.getenv(key, str(default)).lower() in ("true", "1", "yes")
 
 nplayers_threshold = int(os.getenv("NPLAYERS_THRESHOLD", 1))
-timelimit = int(os.getenv("TIMELIMIT", 2))
-warmup_timelimit = int(os.getenv("WARMUP_TIMELIMIT", 5))
+timelimit = int(os.getenv("TIMELIMIT", 10))
 repeats = int(os.getenv("REPEATS", 1))
 
 bot_enable = get_bool_env("BOT_ENABLE")

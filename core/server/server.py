@@ -29,6 +29,7 @@ class Server:
         """Initialize server with all specialized managers."""
         self.logger = logging.getLogger(__name__)
         self.nplayers_threshold = settings.nplayers_threshold
+        self._output_handler = None
 
         self._process: Optional[Popen] = None
         self._async_loop: Optional[asyncio.AbstractEventLoop] = None
@@ -140,6 +141,9 @@ class Server:
 
     def set_async_loop(self, loop: asyncio.AbstractEventLoop):
         self._async_loop = loop
+
+    def set_output_handler(self, handler):
+        self._output_handler = handler
 
     async def cleanup_obs_async(self):
         await self.obs_connection_manager.cleanup_all()
@@ -398,7 +402,10 @@ class Server:
             while not self.is_shutdown_requested():
                 message = self.read_server()
                 if message:
-                    self.logger.debug(f"SERVER: {message}")
+                    if self._output_handler:
+                        self._output_handler(message)
+                    else:
+                        print(f"[SERVER] {message}")
                     self.process_server_message(message)
 
                     if self.game_state_manager.is_experiment_finished():

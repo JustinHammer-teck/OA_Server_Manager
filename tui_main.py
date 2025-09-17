@@ -92,13 +92,11 @@ class AdminApp(App):
         app_log.border_title = "App Logs"
         server_log.border_title = "Server Output"
 
-        # Setup app logging
         handler = TUILogHandler(app_log)
         handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
         logging.getLogger().addHandler(handler)
         logging.getLogger().setLevel(logging.DEBUG)
 
-        # Setup server output handler
         server.set_output_handler(lambda msg: server_log.write_line(msg))
 
         async_thread = threading.Thread(target=run_async_loop, daemon=True)
