@@ -22,31 +22,32 @@ This is an OpenArena (OA) game server management system designed for network lat
 ```
 .
 ├── CLAUDE.md
-├── LATENCY_INVESTIGATION.md
 ├── OA_CMDS_CONFIGS.md
-├── OBS_INTEGRATION_PLAN.md
-├── OBS_WEBSOCKET.md
 ├── README.md
-└── core/
-    ├── server/
-    │   └── server.py
-    ├── game/
-    │   ├── state_manager.py
-    │   ├── config_manager.py
-    │   └── bot_manager.py
-    ├── network/
-    │   ├── latency_manager.py
-    │   ├── client_manager.py
-    │   └── network_utils.py
-    ├── obs/
-    │   ├── connection_manager.py
-    │   ├── manager.py
-    │   └── controller.py
-    ├── messaging/
-    │   └── message_processor.py
-    ├── utils/
-    │   ├── display_utils.py
-    │   └── settings.py
+└── core
+│   ├── game
+│   │   ├── __init__.py
+│   │   ├── game_manager.py
+│   │   └── state_manager.py
+│   ├── messaging
+│   │   ├── __init__.py
+│   │   └── message_processor.py
+│   ├── network
+│   │   ├── __init__.py
+│   │   ├── network_manager.py
+│   │   └── network_utils.py
+│   ├── obs
+│   │   ├── __init__.py
+│   │   ├── connection_manager.py
+│   │   ├── controller.py
+│   │   └── manager.py
+│   ├── server
+│   │   ├── __init__.py
+│   │   └── server.py
+│   └── utils
+│       ├── __init__.py
+│       ├── display_utils.py
+│       └── settings.py
 ├── flake.lock
 ├── flake.nix
 ├── main.py

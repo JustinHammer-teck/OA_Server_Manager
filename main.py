@@ -96,6 +96,17 @@ def run_async_loop():
         logger.info("Async event loop closing")
         async_loop.close()
 
+def run_server_thread():
+    """Run server in background thread."""
+    try:
+        server.start_server()
+        logger.info("Server process started successfully")
+        server.run_server_loop()
+    except Exception as e:
+        logger.error(f"Server thread error: {e}")
+        cleanup()
+
+
 def main():
     """Main execution function."""
     signal.signal(signal.SIGINT, signal_handler)
@@ -106,15 +117,14 @@ def main():
     async_thread = threading.Thread(target=run_async_loop, daemon=True)
     async_thread.start()
 
-    import time
-
     time.sleep(0.2)
 
-    try:
-        server.start_server()
-        logger.info("Server process started successfully")
-        server.run_server_loop()
+    server_thread = threading.Thread(target=run_server_thread, name="ServerThread")
+    server_thread.start()
 
+    try:
+        while not server.is_shutdown_requested():
+            time.sleep(1)
     except Exception as e:
         logger.critical(f"An unhandled exception occurred: {e}", exc_info=True)
     finally:
@@ -122,6 +132,7 @@ def main():
         cleanup()
         if async_loop and async_loop.is_running():
             async_thread.join(timeout=2)
+        server_thread.join(timeout=5)
 
 
 if __name__ == "__main__":
