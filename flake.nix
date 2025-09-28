@@ -39,10 +39,6 @@
               pylsp-rope
             ]);
 
-          shellHook = ''
-            # source .venv/bin/activate
-          '';
-
           RUFFPATH = "${pkgs.ruff}/bin/ruff";
           TYPATH = "${pkgs.ty}/bin/ty";
           PYLSP = "${pkgs.python313Packages.python-lsp-server}/bin/pylsp";

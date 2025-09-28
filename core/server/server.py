@@ -12,6 +12,7 @@ from core.game.state_manager import GameStateManager
 from core.messaging.message_processor import MessageProcessor, MessageType
 from core.network.network_manager import NetworkManager
 from core.obs.connection_manager import OBSConnectionManager
+from core.server.shutdown_strategies import MatchEndStrategy, WarmupEndStrategy
 from core.utils.display_utils import DisplayUtils
 
 
@@ -34,6 +35,8 @@ class Server:
         self._process: Optional[Popen] = None
         self._async_loop: Optional[asyncio.AbstractEventLoop] = None
         self._shutdown_event = threading.Event()
+        self._insufficient_humans = False
+        self._current_map = ""
 
         self.network_manager = NetworkManager(
             interface=settings.interface, send_command_callback=self.send_command
@@ -50,9 +53,15 @@ class Server:
             send_command_callback=self.send_command,
         )
 
+        self._shutdown_strategies = {
+            "match_end": MatchEndStrategy(),
+            "warmup_end": WarmupEndStrategy(),
+        }
+
         self.message_handlers = {
             MessageType.CLIENT_CONNECTING: self._on_client_connect,
             MessageType.CLIENT_DISCONNECT: self._on_client_disconnect,
+            MessageType.GAME_INITIALIZATION: self._on_game_initialization,
             MessageType.MATCH_END_FRAGLIMIT: self._on_match_end,
             MessageType.MATCH_END_TIMELIMIT: self._on_match_end,
             MessageType.WARMUP_STATE: self._on_warmup,
@@ -153,10 +162,6 @@ class Server:
         if self._async_loop and not self._shutdown_event.is_set():
             asyncio.run_coroutine_threadsafe(coro, self._async_loop)
 
-    def is_process_alive(self) -> bool:
-        """Check if the server process is still running."""
-        return self._process and self._process.poll() is None
-
     def is_shutdown_requested(self):
         """Check if shutdown has been requested."""
         return self._shutdown_event.is_set()
@@ -191,34 +196,24 @@ class Server:
         client_id = msg.data["client_id"]
         self.logger.info(f"Processing client {client_id} connection")
 
-    def _on_client_disconnect(self, msg):
-        """Handle client disconnection event."""
-        client_id = msg.data["client_id"]
-        client_ip = self.network_manager.get_client_ip(client_id)
+    def _on_game_initialization(self, msg):
+        self.logger.info("Game initialization detected")
 
-        if client_ip and self.obs_connection_manager.is_client_connected(client_ip):
-            self._run_async(self.obs_connection_manager.disconnect_client(client_ip))
-
-        self.network_manager.remove_client(client_id)
-        self.logger.info(
-            f"Client {client_id} disconnected. Current players: {self.network_manager.get_client_count()}"
-        )
-        self._update_player_status()
+        result = self.game_state_manager.handle_game_initialization_detected()
+        if result.get("state_changed"):
+            self.logger.info("Game state updated to RUNNING")
 
     def _on_match_end(self, msg):
-        """Handle match end due to fraglimit or timelimit hit."""
         reason = msg.data.get("reason", "unknown")
-        self.logger.info(f"Match ended - {reason} hit! Stopping OBS recordings...")
+        self.logger.info(f"Match ended - {reason} hit")
 
         self._run_async(self.obs_connection_manager.stop_match_recording(self.game_state_manager))
 
-        self.send_command(f"say Match ended! {reason} hit. Recordings stopped.")
+        self.send_command(f"say Match ended! {reason} hit.")
 
         result = self.game_state_manager.handle_fraglimit_detected()
         if result and "actions" in result:
             self._process_match_end_actions(result["actions"])
-        if result and result.get("experiment_finished"):
-            self.logger.info(f"Experiment completed after {reason} hit")
 
     def _on_warmup(self, msg):
         """Handle warmup state transition."""
@@ -237,74 +232,29 @@ class Server:
             self.logger.info("Starting async bot addition")
             self._run_async(self.game_manager.add_bots_to_server_async())
 
-        human_count = self.network_manager.get_human_count()
-        obs_status = self.game_state_manager.get_obs_status(
-            self.obs_connection_manager.obs_manager, self.network_manager
-        )
-
-        if human_count >= self.nplayers_threshold and (
-            human_count == 0 or obs_status["all_connected"]
-        ):
-            self.send_command("set g_doWarmup 0")
-            self.send_command(
-                "say All players connected and OBS ready - starting match!"
-            )
-            self.logger.info(
-                "Warmup conditions satisfied - disabling warmup to start match"
-            )
-        else:
-            reasons = []
-            if human_count < self.nplayers_threshold:
-                reasons.append(f"players {human_count}/{self.nplayers_threshold}")
-            if human_count > 0 and not obs_status["all_connected"]:
-                reasons.append(f"OBS {obs_status['connected']}/{obs_status['total']}")
-
-            self.send_command(
-                f"say Warmup continues - waiting for: {', '.join(reasons)}"
-            )
-            self.logger.info(f"Warmup continues due to: {', '.join(reasons)}")
-            self.game_manager.restart_warmup()
-
     def _process_match_end_actions(self, actions):
         if "rotate_latency" in actions:
             self.network_manager.rotate_latencies()
             self.logger.info("Latency rotated for next match")
 
-        if "restart_match" in actions:
-            time.sleep(2)
-            self.game_manager.restart_map()
-            self.logger.info("Match restarted")
-
     def _on_shutdown(self, msg):
-        """Handle game shutdown - either warmup end or match end."""
         event_type = msg.data.get("event", "unknown")
+        strategy = self._shutdown_strategies.get(event_type)
 
-        if event_type == "match_end":
-            self.logger.info("ShutdownGame: Match ended completely")
-            result = self.game_state_manager.handle_match_end_detected()
-            if result and "actions" in result:
-                self._process_match_end_actions(result["actions"])
-            self.send_command("say Match completed!")
-        elif event_type == "warmup_end":
-            self.logger.info("ShutdownGame: Warmup ended, match starting")
-            result = self.game_state_manager.handle_match_start_detected()
-            if result and "actions" in result:
-                actions = result["actions"]
-                if "start_match_recording" in actions:
-                    self._run_async(self.obs_connection_manager.start_match_recording(self.game_state_manager))
-                if "apply_latency" in actions:
-                    if self.network_manager.is_enabled():
-                        self.network_manager.apply_latency_rules()
-                    else:
-                        self.logger.info(
-                            "Latency control disabled, skipping latency application"
-                        )
-            self.send_command("say Match is starting!")
+        if strategy:
+            strategy.handle(self, msg)
         else:
             self.logger.warning(f"Unknown shutdown game event: {event_type}")
 
     def _on_status(self, msg):
         """Handle server status output."""
+        raw_message = msg.raw_message
+
+        if raw_message.startswith("map:"):
+            map_name = raw_message.split(":", 1)[1].strip()
+            self._current_map = map_name
+            self.logger.debug(f"Current map updated to: {map_name}")
+
         if msg.data.get("status_complete"):
             client_data_list = msg.data.get("client_data", [])
             for client_data in client_data_list:
@@ -353,6 +303,26 @@ class Server:
             )
 
         self._update_player_status()
+        self._update_insufficient_humans()
+
+    def _on_client_disconnect(self, msg):
+        """Handle client disconnection event."""
+        client_id = msg.data["client_id"]
+        client_ip = self.network_manager.get_client_ip(client_id)
+
+        if client_ip and self.obs_connection_manager.is_client_connected(client_ip):
+            self._run_async(self.obs_connection_manager.disconnect_client(client_ip))
+
+        self.network_manager.remove_client(client_id)
+        self.logger.info(
+            f"Client {client_id} disconnected. Current players: {self.network_manager.get_client_count()}"
+        )
+        self._update_player_status()
+        self._update_insufficient_humans()
+
+    def _update_insufficient_humans(self):
+        human_count = self.network_manager.get_human_count()
+        self._insufficient_humans = human_count < self.nplayers_threshold
 
     def run_server_loop(self):
         """Main server message processing loop."""
@@ -367,15 +337,6 @@ class Server:
                     else:
                         print(f"[SERVER] {message}")
                     self.process_server_message(message)
-
-                    if self.game_state_manager.is_experiment_finished():
-                        human_count = self.network_manager.get_human_count()
-                        if human_count > 0:
-                            self.logger.info("Experiment completed, exiting loop")
-                        else:
-                            self.logger.debug(
-                                "Experiment marked as finished but no human players - continuing to run"
-                            )
 
                 time.sleep(0.01)
 

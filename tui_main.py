@@ -95,7 +95,7 @@ class AdminApp(App):
         handler = TUILogHandler(app_log)
         handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
         logging.getLogger().addHandler(handler)
-        logging.getLogger().setLevel(logging.DEBUG)
+        logging.getLogger().setLevel(logging.INFO)
 
         server.set_output_handler(lambda msg: server_log.write_line(msg))
 
