@@ -3,7 +3,6 @@ import logging
 import signal
 import sys
 import threading
-import time
 from textual.app import App, ComposeResult
 from textual.widgets import Input, Log, Button, Label, DataTable
 from textual.containers import Horizontal, Vertical
@@ -47,6 +46,16 @@ def run_server_thread():
     server.start_server()
     server.run_server_loop()
 
+def start_server_process():
+    global server_thread
+
+    logging.info("Starting server process...")
+
+    server_thread = threading.Thread(target=run_server_thread, daemon=True)
+    server_thread.start()
+
+    logging.info("Server process started")
+
 class TUILogHandler(logging.Handler):
     def __init__(self, log_widget):
         super().__init__()
@@ -84,18 +93,20 @@ class AdminApp(App):
                 Label("Round: 0/5", id="status-round"),
                 Button("Add Bot", id="add-bot-btn", variant="primary"),
                 Button("Remove All Bot", id="remove-bot-btn", variant="default"),
-                id="top-panel"
+                id="top-panel",
             ),
             Horizontal(
-                DataTable(id="user-table"),
                 Vertical(
-                    Log(id="app-log"),
-                    Log(id="server-log"),
-                    id="right-panel"
+                    Horizontal(
+                        Button("Start Server", id="start-server-btn", variant="success"),
+                        Button("Kill Server", id="kill-server-btn", variant="error"),
+                    ),
+                    DataTable(id="user-table"),
                 ),
-                id="content-panel"
+                Vertical(Log(id="app-log"), Log(id="server-log"), id="right-panel"),
+                id="content-panel",
             ),
-            id="main-container"
+            id="main-container",
         )
 
     def on_mount(self) -> None:
@@ -127,21 +138,21 @@ class AdminApp(App):
         async_thread = threading.Thread(target=run_async_loop, daemon=True)
         async_thread.start()
 
-        time.sleep(0.2)
-
-        server_thread = threading.Thread(target=run_server_thread, daemon=True)
-        server_thread.start()
-
         self.setup_periodic_updates()
 
     def on_input_submitted(self, message: Input.Submitted) -> None:
-        command = message.value.strip()
-        if command:
-            if command.lower() in ['quit', 'exit']:
+        input_id = message.input.id
+        value = message.value.strip()
+
+        if not value:
+            return
+
+        if input_id == "input":
+            if value.lower() in ['quit', 'exit']:
                 self.action_quit()
             else:
-                server.send_command(command)
-                self.query_one("#input", Input).value = ""
+                server.send_command(value)
+                message.input.value = ""
 
     def action_quit(self) -> None:
         def check_quit(confirmed: bool | None) -> None:
@@ -190,11 +201,20 @@ class AdminApp(App):
         except Exception as e:
             logging.error(f"Error updating user table: {e}")
 
+    def update_start_button(self):
+        try:
+            start_btn = self.query_one("#start-server-btn", Button)
+            is_running = server._process and server._process.poll() is None
+            start_btn.disabled = is_running
+        except Exception as e:
+            logging.error(f"Error updating start button: {e}")
+
     def setup_periodic_updates(self):
         def periodic_update():
             if not cleanup_done:
                 self.update_status_display()
                 self.update_user_table()
+                self.update_start_button()
                 timer = threading.Timer(2.0, periodic_update)
                 timer.daemon = True
                 timer.start()
@@ -215,6 +235,14 @@ class AdminApp(App):
         elif event.button.id == "remove-bot-btn":
             server.send_command("kick allbots")
             logging.info("All bots removal requested")
+
+        elif event.button.id == "start-server-btn":
+            start_server_process()
+            self.update_start_button()
+
+        elif event.button.id == "kill-server-btn":
+            server.send_command("killserver")
+            logging.info("Kill server command sent")
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         if event.data_table.id == "user-table":

@@ -86,7 +86,6 @@ python3 -c "from textual.widgets import DataTable; help(DataTable.RowSelected)"
 # CORRECT 
 
 uv run python3 -c "from textual.widgets import DataTable; help(DataTable.RowSelected)"
-
 ```
 
 ### Configuration Management
