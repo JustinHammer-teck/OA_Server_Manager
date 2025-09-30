@@ -111,9 +111,7 @@ class GameManager:
     def set_flaglimit(self, limit: int) -> bool:
         """Set the capturelimit for matches."""
         try:
-            self.send_command(f"set capturelimit {limit}")
             self.send_command(f"say flaglimit set to {limit}")
-            self._current_config["capturelimit"] = limit
             self.logger.info(f"Flaglimit set to {limit}")
             return True
         except Exception as e:

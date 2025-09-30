@@ -9,6 +9,7 @@ from textual.widgets import Input, Log, Button, Label, DataTable
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.binding import Binding
+from textual import work
 
 import core.utils.settings as settings
 from core.network.network_utils import NetworkUtils
@@ -17,7 +18,6 @@ from core.server.server import Server
 server = Server()
 async_loop = None
 async_thread = None
-server_thread = None
 cleanup_done = False
 
 def cleanup():
@@ -29,7 +29,12 @@ def cleanup():
     logging.info("Starting cleanup...")
 
     server.dispose()
-    NetworkUtils.dispose(settings.interface)
+
+    if getattr(settings, 'enable_latency_control', False):
+        try:
+            NetworkUtils.dispose(settings.interface)
+        except Exception as e:
+            logging.warning(f"Network cleanup skipped: {e}")
 
     if async_loop and async_loop.is_running():
         async_loop.call_soon_threadsafe(async_loop.stop)
@@ -43,19 +48,6 @@ def run_async_loop():
     server.set_async_loop(async_loop)
     async_loop.run_forever()
 
-def run_server_thread():
-    server.start_server()
-    server.run_server_loop()
-
-def start_server_process():
-    global server_thread
-
-    logging.info("Starting server process...")
-
-    server_thread = threading.Thread(target=run_server_thread, daemon=True)
-    server_thread.start()
-
-    logging.info("Server process started")
 
 class TUILogHandler(logging.Handler):
     def __init__(self, log_widget):
@@ -101,8 +93,10 @@ class AdminApp(App):
                     Horizontal(
                         Button("Start Server", id="start-server-btn", variant="success"),
                         Button("Kill Server", id="kill-server-btn", variant="error"),
+                        id="server-control-buttons",
                     ),
                     DataTable(id="user-table"),
+                    id="left-panel",
                 ),
                 Vertical(Log(id="app-log"), Log(id="server-log"), id="right-panel"),
                 id="content-panel",
@@ -110,8 +104,16 @@ class AdminApp(App):
             id="main-container",
         )
 
+    @work(thread=True)
+    def run_server_worker(self):
+        """Run server process in background thread using Textual Worker."""
+        logging.info("Server worker starting...")
+        server.start_server()
+        logging.info("Server process started, entering message loop...")
+        server.run_server_loop()
+
     def on_mount(self) -> None:
-        global async_thread, server_thread
+        global async_thread
 
         app_log = self.query_one("#app-log", Log)
         server_log = self.query_one("#server-log", Log)
@@ -170,10 +172,12 @@ class AdminApp(App):
 
             current_state = "Warmup"
             current_round = 0
-            max_rounds = 5
+            max_rounds = 0
 
             if hasattr(server, 'game_state_manager') and server.game_state_manager:
                 current_state = server.game_state_manager.get_current_state().name
+                current_round = server.game_state_manager.round_count
+                max_rounds = server.game_state_manager.max_rounds
 
             state_label.update(f"State: {current_state}")
             round_label.update(f"Round: {current_round}/{max_rounds}")
@@ -205,8 +209,7 @@ class AdminApp(App):
     def update_start_button(self):
         try:
             start_btn = self.query_one("#start-server-btn", Button)
-            is_running = server._process and server._process.poll() is None
-            start_btn.disabled = is_running
+            start_btn.disabled = server.is_running()
         except Exception as e:
             logging.error(f"Error updating start button: {e}")
 
@@ -238,7 +241,7 @@ class AdminApp(App):
             logging.info("All bots removal requested")
 
         elif event.button.id == "start-server-btn":
-            start_server_process()
+            self.run_server_worker()
             self.update_start_button()
 
         elif event.button.id == "kill-server-btn":

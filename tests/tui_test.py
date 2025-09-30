@@ -78,7 +78,7 @@ class MockOBSManager:
         return ip == "192.168.1.100"
 
 class MockTUIApp(AdminApp):
-    CSS_PATH = "tui_test.tcss"
+    CSS_PATH = "../tui_main.tcss"
 
     def on_mount(self) -> None:
         global server

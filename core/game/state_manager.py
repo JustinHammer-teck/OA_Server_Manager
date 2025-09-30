@@ -16,7 +16,7 @@ class GameStateManager:
 
     def __init__(self, send_command_callback: Callable[[str], None]):
         self.current_state = GameState.WAITING
-        self.round_count: int = 0
+        self.round_count: int = 1 # Should start from round 1
         self.warmup_round_count: int = 0
         self.max_rounds: int = len(settings.latencies) * settings.repeats
         self.send_command = send_command_callback
@@ -36,8 +36,7 @@ class GameStateManager:
             result["state_changed"] = True
             self.logger.info("State tracked: WAITING -> WARMUP")
         elif self.current_state == GameState.WARMUP:
-            self.warmup_round_count += 1
-            self.logger.info(f"Warmup restarted (round {self.warmup_round_count})")
+            self.logger.info(f"Warmup restarted")
         elif self.current_state == GameState.RUNNING:
             self.current_state = GameState.WARMUP
             result["state_changed"] = True
@@ -77,10 +76,9 @@ class GameStateManager:
 
         return result
 
-    def handle_fraglimit_detected(self) -> dict:
-        """React to fraglimit hit - prepare for next round or experiment end."""
+    def handle_match_shutdown_detected(self) -> dict:
+        """React to server shutdown the game match - acknowledge shutdown only."""
         result = {
-            "state_changed": False,
             "round_completed": False,
             "experiment_finished": False,
             "actions": [],
@@ -88,7 +86,7 @@ class GameStateManager:
 
         if self.current_state == GameState.RUNNING:
             self.round_count += 1
-            
+
             if self.round_count >= self.max_rounds:
                 result["experiment_finished"] = True
                 self.logger.info(
@@ -97,28 +95,9 @@ class GameStateManager:
             else:
                 result["round_completed"] = True
                 result["actions"].extend(["rotate_latency"])
-                self.logger.info(f"Round {self.round_count} completed, preparing round {self.round_count + 1} (max: {self.max_rounds})")
-
-        return result
-
-    def handle_match_end_detected(self) -> dict:
-        """React to match completely ending - prepare for next round."""
-        result = {
-            "round_completed": False,
-            "experiment_finished": False,
-            "actions": [],
-        }
-
-        if self.current_state == GameState.RUNNING:
-            self.round_count += 1
-
-            if self.round_count >= self.max_rounds:
-                result["experiment_finished"] = True
-                self.logger.info(f"Experiment finished after {self.round_count - 1} rounds")
-            else:
-                result["round_completed"] = True
-                result["actions"].extend(["rotate_latency"])
-                self.logger.info(f"Match ended, starting round {self.round_count}")
+                self.logger.info(
+                    f"Round {self.round_count} completed, preparing round {self.round_count + 1} (max: {self.max_rounds})"
+                )
 
         return result
 
@@ -128,13 +107,9 @@ class GameStateManager:
 
     def get_round_info(self) -> dict:
         """Get current round information."""
-        if self.current_state == GameState.RUNNING:
-            current_round = self.round_count + 1
-        else:
-            current_round = self.round_count
-            
+
         return {
-            "current_round": current_round,
+            "current_round": self.round_count,
             "max_rounds": self.max_rounds,
             "warmup_rounds": self.warmup_round_count,
             "state": self.current_state.name,

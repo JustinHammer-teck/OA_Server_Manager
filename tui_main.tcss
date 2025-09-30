@@ -1,6 +1,6 @@
 #main-container {
-    height: 100vh;
-    width: 100vw;
+    height: 100%;
+    width: 100%;
 }
 
 #top-panel {
@@ -36,15 +36,24 @@
     height: 1fr;
 }
 
+#left-panel {
+    width: 40%;
+    height: 100%;
+}
+
+#server-control-buttons {
+    height: 3;
+    margin-bottom: 1;
+}
+
 #user-table {
-    width: 30%;
+    height: 1fr;
     border: solid $primary;
     border-title-color: $accent;
-    margin-right: 1;
 }
 
 #right-panel {
-    width: 70%;
+    width: 60%;
 }
 
 #app-log {
