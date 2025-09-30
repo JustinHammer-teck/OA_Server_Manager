@@ -112,7 +112,7 @@ class GameStateManager:
         if self.current_state == GameState.RUNNING:
             self.round_count += 1
 
-            if self.round_count > self.max_rounds:
+            if self.round_count >= self.max_rounds:
                 result["experiment_finished"] = True
                 self.logger.info(f"Experiment finished after {self.round_count - 1} rounds")
             else:

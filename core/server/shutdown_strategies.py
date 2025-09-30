@@ -1,4 +1,3 @@
-import asyncio
 import time
 
 
@@ -16,15 +15,23 @@ class MatchEndStrategy(ShutdownStrategy):
         if result and "actions" in result:
             server._process_match_end_actions(result["actions"])
 
+
         if result and result.get("experiment_finished"):
+            server._run_async(
+                server.obs_connection_manager.stop_match_recording(
+                    server.game_state_manager
+                )
+            )
+            time.sleep(3)
+
             server.send_command("say Experiment completed! Server shutting down in 3 seconds...")
             time.sleep(3)
+
             server.send_command("killserver")
             server.logger.info("Sent killserver command to stop the server")
         else:
             server.send_command("say Match completed!")
 
-        server._run_async(server.obs_connection_manager.stop_match_recording(server.game_state_manager))
 
 
 class WarmupEndStrategy(ShutdownStrategy):

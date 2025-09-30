@@ -89,9 +89,13 @@ class Server:
             "+set",
             "com_protocol",
             "71",
+            "+set"
+            "sv_pure", "0"
             "+set",
             "sv_master1",
             "dpmaster.deathmask.net",
+            "+set",
+            "sv_maxclients", "4"
             "+set",
             "cl_motd",
             "Welcome To ASTRID lab",

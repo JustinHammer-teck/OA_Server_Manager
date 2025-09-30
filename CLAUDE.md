@@ -52,6 +52,7 @@ This is an OpenArena (OA) game server management system designed for network lat
 │       ├── __init__.py
 │       ├── display_utils.py
 │       └── settings.py
+├── tests 
 ├── flake.lock
 ├── flake.nix
 ├── main.py
