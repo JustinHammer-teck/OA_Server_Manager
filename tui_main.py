@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from logging.handlers import RotatingFileHandler
 import signal
 import sys
 import threading
@@ -262,6 +263,14 @@ def signal_handler(sig, frame):
     sys.exit(0)
 
 def main():
+    file_handler = RotatingFileHandler(
+        "tui_app.log",
+        maxBytes=5 * 1024 * 1024,
+        backupCount=3
+    )
+    file_handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
+    logging.getLogger().addHandler(file_handler)
+
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
 
