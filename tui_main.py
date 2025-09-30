@@ -112,6 +112,7 @@ class AdminApp(App):
 
         user_table = self.query_one("#user-table", DataTable)
         user_table.border_title = "Connected Users"
+        user_table.cursor_type = "row"
         user_table.add_columns("ID", "Name", "OBS", "Action")
 
         handler = TUILogHandler(app_log)

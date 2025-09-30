@@ -138,6 +138,9 @@ class Server:
             client_type = self.network_manager.client_type_map.get(client_id, "Unknown")
             self.send_command(f"clientkick {client_id}")
             self.logger.info(f"Kicked {client_type} client {client_id} ({client_name})")
+
+            time.sleep(0.5)
+            self.send_command(f"status")
         else:
             self.logger.warning(f"Cannot kick client {client_id}: client not found")
 
