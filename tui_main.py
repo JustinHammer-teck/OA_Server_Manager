@@ -112,7 +112,7 @@ class AdminApp(App):
 
         user_table = self.query_one("#user-table", DataTable)
         user_table.border_title = "Connected Users"
-        user_table.add_columns("Name", "OBS", "Action")
+        user_table.add_columns("ID", "Name", "OBS", "Action")
 
         handler = TUILogHandler(app_log)
         handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
@@ -185,7 +185,7 @@ class AdminApp(App):
                         obs_status = "✓" if (client_ip and hasattr(server, 'obs_connection_manager')
                                            and server.obs_connection_manager.is_client_connected(client_ip)) else "✗"
 
-                    user_table.add_row(name, obs_status, "Kick")
+                    user_table.add_row(str(client_id), name, obs_status, "Kick")
         except Exception as e:
             logging.error(f"Error updating user table: {e}")
 
@@ -220,10 +220,11 @@ class AdminApp(App):
             try:
                 user_table = self.query_one("#user-table", DataTable)
                 row_data = user_table.get_row(event.row_key)
-                user_name = row_data[0]
+                client_id = int(row_data[0])
+                user_name = row_data[1]
 
-                logging.info(f"Kicking user: {user_name}")
-                server.send_command(f"kick {user_name}")
+                logging.info(f"Kicking user: {user_name} (ID: {client_id})")
+                server.kick_client(client_id)
             except Exception as e:
                 logging.error(f"Error kicking user: {e}")
 

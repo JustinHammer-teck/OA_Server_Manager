@@ -131,6 +131,16 @@ class Server:
             except (BrokenPipeError, OSError) as e:
                 self.logger.error(f"Failed to send command: {e}")
 
+    def kick_client(self, client_id: int):
+        """Kick a client by their slot number (client_id)."""
+        if client_id in self.network_manager.client_type_map:
+            client_name = self.network_manager.client_name_map.get(client_id, "Unknown")
+            client_type = self.network_manager.client_type_map.get(client_id, "Unknown")
+            self.send_command(f"clientkick {client_id}")
+            self.logger.info(f"Kicked {client_type} client {client_id} ({client_name})")
+        else:
+            self.logger.warning(f"Cannot kick client {client_id}: client not found")
+
     def read_server(self) -> str:
         """Read a message from the server's stderr."""
         try:
