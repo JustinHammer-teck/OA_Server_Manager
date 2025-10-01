@@ -77,6 +77,17 @@ uv run main.py
 uv run server_script.py --interface enp1s0 --bots 4 --difficulty 3
 ```
 
+### For Running python script 
+```shell
+
+# WRONG
+python3 -c "from textual.widgets import DataTable; help(DataTable.RowSelected)"
+
+# CORRECT 
+
+uv run python3 -c "from textual.widgets import DataTable; help(DataTable.RowSelected)"
+```
+
 ### Configuration Management
 
 Server behavior controlled via `.env` file:

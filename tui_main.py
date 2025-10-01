@@ -1,14 +1,15 @@
 import asyncio
 import logging
+from logging.handlers import RotatingFileHandler
 import signal
 import sys
 import threading
-import time
 from textual.app import App, ComposeResult
 from textual.widgets import Input, Log, Button, Label, DataTable
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.binding import Binding
+from textual import work
 
 import core.utils.settings as settings
 from core.network.network_utils import NetworkUtils
@@ -17,7 +18,6 @@ from core.server.server import Server
 server = Server()
 async_loop = None
 async_thread = None
-server_thread = None
 cleanup_done = False
 
 def cleanup():
@@ -29,7 +29,12 @@ def cleanup():
     logging.info("Starting cleanup...")
 
     server.dispose()
-    NetworkUtils.dispose(settings.interface)
+
+    if getattr(settings, 'enable_latency_control', False):
+        try:
+            NetworkUtils.dispose(settings.interface)
+        except Exception as e:
+            logging.warning(f"Network cleanup skipped: {e}")
 
     if async_loop and async_loop.is_running():
         async_loop.call_soon_threadsafe(async_loop.stop)
@@ -43,9 +48,6 @@ def run_async_loop():
     server.set_async_loop(async_loop)
     async_loop.run_forever()
 
-def run_server_thread():
-    server.start_server()
-    server.run_server_loop()
 
 class TUILogHandler(logging.Handler):
     def __init__(self, log_widget):
@@ -84,22 +86,34 @@ class AdminApp(App):
                 Label("Round: 0/5", id="status-round"),
                 Button("Add Bot", id="add-bot-btn", variant="primary"),
                 Button("Remove All Bot", id="remove-bot-btn", variant="default"),
-                id="top-panel"
+                id="top-panel",
             ),
             Horizontal(
-                DataTable(id="user-table"),
                 Vertical(
-                    Log(id="app-log"),
-                    Log(id="server-log"),
-                    id="right-panel"
+                    Horizontal(
+                        Button("Start Server", id="start-server-btn", variant="success"),
+                        Button("Kill Server", id="kill-server-btn", variant="error"),
+                        id="server-control-buttons",
+                    ),
+                    DataTable(id="user-table"),
+                    id="left-panel",
                 ),
-                id="content-panel"
+                Vertical(Log(id="app-log"), Log(id="server-log"), id="right-panel"),
+                id="content-panel",
             ),
-            id="main-container"
+            id="main-container",
         )
 
+    @work(thread=True)
+    def run_server_worker(self):
+        """Run server process in background thread using Textual Worker."""
+        logging.info("Server worker starting...")
+        server.start_server()
+        logging.info("Server process started, entering message loop...")
+        server.run_server_loop()
+
     def on_mount(self) -> None:
-        global async_thread, server_thread
+        global async_thread
 
         app_log = self.query_one("#app-log", Log)
         server_log = self.query_one("#server-log", Log)
@@ -112,7 +126,8 @@ class AdminApp(App):
 
         user_table = self.query_one("#user-table", DataTable)
         user_table.border_title = "Connected Users"
-        user_table.add_columns("Name", "OBS", "Action")
+        user_table.cursor_type = "row"
+        user_table.add_columns("ID", "Name", "OBS", "Action")
 
         handler = TUILogHandler(app_log)
         handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
@@ -126,21 +141,21 @@ class AdminApp(App):
         async_thread = threading.Thread(target=run_async_loop, daemon=True)
         async_thread.start()
 
-        time.sleep(0.2)
-
-        server_thread = threading.Thread(target=run_server_thread, daemon=True)
-        server_thread.start()
-
         self.setup_periodic_updates()
 
     def on_input_submitted(self, message: Input.Submitted) -> None:
-        command = message.value.strip()
-        if command:
-            if command.lower() in ['quit', 'exit']:
+        input_id = message.input.id
+        value = message.value.strip()
+
+        if not value:
+            return
+
+        if input_id == "input":
+            if value.lower() in ['quit', 'exit']:
                 self.action_quit()
             else:
-                server.send_command(command)
-                self.query_one("#input", Input).value = ""
+                server.send_command(value)
+                message.input.value = ""
 
     def action_quit(self) -> None:
         def check_quit(confirmed: bool | None) -> None:
@@ -157,10 +172,12 @@ class AdminApp(App):
 
             current_state = "Warmup"
             current_round = 0
-            max_rounds = 5
+            max_rounds = 0
 
             if hasattr(server, 'game_state_manager') and server.game_state_manager:
                 current_state = server.game_state_manager.get_current_state().name
+                current_round = server.game_state_manager.round_count
+                max_rounds = server.game_state_manager.max_rounds
 
             state_label.update(f"State: {current_state}")
             round_label.update(f"Round: {current_round}/{max_rounds}")
@@ -185,15 +202,23 @@ class AdminApp(App):
                         obs_status = "✓" if (client_ip and hasattr(server, 'obs_connection_manager')
                                            and server.obs_connection_manager.is_client_connected(client_ip)) else "✗"
 
-                    user_table.add_row(name, obs_status, "Kick")
+                    user_table.add_row(str(client_id), name, obs_status, "Kick")
         except Exception as e:
             logging.error(f"Error updating user table: {e}")
+
+    def update_start_button(self):
+        try:
+            start_btn = self.query_one("#start-server-btn", Button)
+            start_btn.disabled = server.is_running()
+        except Exception as e:
+            logging.error(f"Error updating start button: {e}")
 
     def setup_periodic_updates(self):
         def periodic_update():
             if not cleanup_done:
                 self.update_status_display()
                 self.update_user_table()
+                self.update_start_button()
                 timer = threading.Timer(2.0, periodic_update)
                 timer.daemon = True
                 timer.start()
@@ -215,15 +240,24 @@ class AdminApp(App):
             server.send_command("kick allbots")
             logging.info("All bots removal requested")
 
+        elif event.button.id == "start-server-btn":
+            self.run_server_worker()
+            self.update_start_button()
+
+        elif event.button.id == "kill-server-btn":
+            server.send_command("killserver")
+            logging.info("Kill server command sent")
+
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         if event.data_table.id == "user-table":
             try:
                 user_table = self.query_one("#user-table", DataTable)
                 row_data = user_table.get_row(event.row_key)
-                user_name = row_data[0]
+                client_id = int(row_data[0])
+                user_name = row_data[1]
 
-                logging.info(f"Kicking user: {user_name}")
-                server.send_command(f"kick {user_name}")
+                logging.info(f"Kicking user: {user_name} (ID: {client_id})")
+                server.kick_client(client_id)
             except Exception as e:
                 logging.error(f"Error kicking user: {e}")
 
@@ -232,6 +266,14 @@ def signal_handler(sig, frame):
     sys.exit(0)
 
 def main():
+    file_handler = RotatingFileHandler(
+        "tui_app.log",
+        maxBytes=5 * 1024 * 1024,
+        backupCount=3
+    )
+    file_handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
+    logging.getLogger().addHandler(file_handler)
+
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
 
