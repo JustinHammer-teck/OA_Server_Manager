@@ -16,13 +16,15 @@ class GameStateManager:
 
     def __init__(self, send_command_callback: Callable[[str], None]):
         self.current_state = GameState.WAITING
-        self.round_count: int = 1 # Should start from round 1
+        self.round_count: int = 1  # Should start from round 1
         self.warmup_round_count: int = 0
         self.max_rounds: int = len(settings.latencies) * settings.repeats
         self.send_command = send_command_callback
         self.logger = logging.getLogger(__name__)
-        
-        self.logger.info(f"GameStateManager initialized: latencies={settings.latencies}, repeats={settings.repeats}, max_rounds={self.max_rounds}")
+
+        self.logger.info(
+            f"GameStateManager initialized: latencies={settings.latencies}, repeats={settings.repeats}, max_rounds={self.max_rounds}"
+        )
 
     def handle_warmup_detected(self) -> dict:
         """React to server warmup message - purely reactive state tracking."""
@@ -36,11 +38,13 @@ class GameStateManager:
             result["state_changed"] = True
             self.logger.info("State tracked: WAITING -> WARMUP")
         elif self.current_state == GameState.WARMUP:
-            self.logger.info(f"Warmup restarted")
+            self.logger.info("Warmup restarted")
         elif self.current_state == GameState.RUNNING:
             self.current_state = GameState.WARMUP
             result["state_changed"] = True
-            self.logger.info("State tracked: RUNNING -> WARMUP (match restarted with warmup)")
+            self.logger.info(
+                "State tracked: RUNNING -> WARMUP (match restarted with warmup)"
+            )
         else:
             self.logger.warning(f"Unexpected warmup from state {self.current_state}")
 
@@ -70,9 +74,13 @@ class GameStateManager:
             self.current_state = GameState.RUNNING
             result["state_changed"] = True
             result["actions"].extend(["start_match_recording", "apply_latency"])
-            self.logger.info(f"State tracked: WARMUP -> RUNNING (starting round {self.round_count + 1})")
+            self.logger.info(
+                f"State tracked: WARMUP -> RUNNING (starting round {self.round_count + 1})"
+            )
         else:
-            self.logger.warning(f"Unexpected match start from state {self.current_state}")
+            self.logger.warning(
+                f"Unexpected match start from state {self.current_state}"
+            )
 
         return result
 
@@ -133,12 +141,11 @@ class GameStateManager:
         )
         all_connected = connected_count == len(human_ips)
 
-        self.logger.info(
-            f"OBS status: {connected_count}/{len(human_ips)} connected"
-        )
+        self.logger.info(f"OBS status: {connected_count}/{len(human_ips)} connected")
 
         return {
             "connected": connected_count,
             "total": len(human_ips),
             "all_connected": all_connected,
         }
+

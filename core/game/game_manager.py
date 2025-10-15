@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from typing import Dict, Any, Optional, Callable
+from typing import Callable, Dict
 
 import core.utils.settings as settings
 
@@ -46,11 +46,22 @@ class GameManager:
                 if i < len(settings.bot_names) and settings.bot_names[i]:
                     bot_name = settings.bot_names[i]
                 else:
-                    bot_names = ["Angelyss", "Arachna", "Major", "Sarge", "Skelebot", "Merman", "Beret", "Kyonshi"]
+                    bot_names = [
+                        "Angelyss",
+                        "Arachna",
+                        "Major",
+                        "Sarge",
+                        "Skelebot",
+                        "Merman",
+                        "Beret",
+                        "Kyonshi",
+                    ]
                     bot_name = bot_names[i % len(bot_names)]
 
                 self.send_command(f"addbot {bot_name} {settings.bot_difficulty}")
-                self.logger.info(f"Added bot {bot_name} with difficulty {settings.bot_difficulty}")
+                self.logger.info(
+                    f"Added bot {bot_name} with difficulty {settings.bot_difficulty}"
+                )
                 await asyncio.sleep(0.1)
 
             self._bots_added = True
@@ -69,7 +80,9 @@ class GameManager:
         try:
             if self.should_add_bots():
                 self.send_command("set bot_minplayers 0")
-                self.logger.info(f"Bot settings initialized for {settings.bot_count} bots")
+                self.logger.info(
+                    f"Bot settings initialized for {settings.bot_count} bots"
+                )
                 return True
             return False
         except Exception as e:
@@ -86,7 +99,7 @@ class GameManager:
         """Get startup configuration for server."""
         return {
             "timelimit": str(settings.timelimit),
-            "capturelimit": str(settings.flaglimit),
+            "capturelimit": str(settings.fraglimit),
             "g_doWarmup": "1" if settings.enable_warmup else "0",
             "g_warmup": str(settings.warmup_time),
         }
@@ -95,7 +108,7 @@ class GameManager:
         """Apply default game configuration."""
         try:
             self.send_command(f"set timelimit {settings.timelimit}")
-            self.send_command(f"set capturelimit {settings.flaglimit}")
+            self.send_command(f"set fraglimit {settings.fraglimit}")
 
             if settings.enable_warmup:
                 self.send_command("set g_doWarmup 1")
@@ -148,3 +161,4 @@ class GameManager:
         except Exception as e:
             self.logger.error(f"Error restarting map: {e}")
             return False
+

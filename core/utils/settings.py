@@ -22,7 +22,7 @@ interface = os.getenv("INTERFACE", "eno2")
 latencies = [int(lat) for lat in os.getenv("LATENCIES", "200").split(",")]
 enable_latency_control = get_bool_env("ENABLE_LATENCY_CONTROL", False)
 
-flaglimit = int(os.getenv("FLAGLIMIT", 10))
+fraglimit = int(os.getenv("FLAGLIMIT", 10))
 warmup_time = int(os.getenv("WARMUP_TIME", 100000000000))
 enable_warmup = get_bool_env("ENABLE_WARMUP", True)
 
@@ -30,3 +30,4 @@ enable_warmup = get_bool_env("ENABLE_WARMUP", True)
 obs_port = os.getenv("OBS_PORT", "4455")
 obs_password = os.getenv("OBS_PASSWORD", None)
 obs_connection_timeout = os.getenv("OBS_CONNECTION_TIMEOUT", "30")
+
