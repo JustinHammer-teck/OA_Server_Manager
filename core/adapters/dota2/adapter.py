@@ -19,7 +19,6 @@ class Dota2GameAdapter(GameAdapter):
     Key differences from subprocess-based adapters:
     - Connects to existing server (doesn't start subprocess)
     - Commands are request/response (not fire-and-forget)
-    - No continuous output stream - requires polling for status
     - Password-based authentication required
     """
 
@@ -56,7 +55,7 @@ class Dota2GameAdapter(GameAdapter):
                 f"Connecting to Dota 2 server at {self.config.host}:{self.config.port}"
             )
             await self.rcon.connect()
-            self.logger.info("Successfully connected to Dota 2 server")
+            self.logger.info("Successfully connected to Dota 2 server via RCON")
             return True
         except RCONError as e:
             self.logger.error(f"Failed to connect to Dota 2 server: {e}")
@@ -107,24 +106,20 @@ class Dota2GameAdapter(GameAdapter):
 
     async def read_messages(self) -> AsyncIterator[str]:
         """
-        Poll server status periodically.
+        Read messages from server via RCON polling.
 
-        Unlike subprocess-based adapters which read from stderr,
-        Dota 2 requires polling. This yields status responses
-        which can be parsed for game state changes.
+        Yields status poll responses at configured interval.
         """
         self._polling = True
 
         while self._polling and self.is_connected and not self._shutdown_requested:
             try:
-                # Poll status command
                 status = await self.rcon.get_status()
                 if status:
                     yield f"STATUS_POLL:{status}"
 
             except RCONError as e:
                 self.logger.error(f"Status poll failed: {e}")
-                # On error, try to reconnect
                 try:
                     await self.rcon.connect()
                 except RCONError:

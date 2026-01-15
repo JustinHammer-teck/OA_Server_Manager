@@ -35,6 +35,7 @@ class GameAdapterRegistry:
 
         adapter_class = cls._adapters[game_type]
         logger.info(f"Creating {game_type} adapter: {adapter_class.__name__}")
+
         return adapter_class(config)
 
     @classmethod
@@ -52,7 +53,9 @@ def register_default_adapters() -> None:
     """Register all default game adapters."""
     from core.adapters.openarena.adapter import OAGameAdapter
     from core.adapters.dota2.adapter import Dota2GameAdapter
+    from core.adapters.amp.adapter import AMPGameAdapter
 
     GameAdapterRegistry.register("openarena", OAGameAdapter)
     GameAdapterRegistry.register("dota2", Dota2GameAdapter)
+    GameAdapterRegistry.register("amp", AMPGameAdapter)
     logger.info(f"Registered adapters: {GameAdapterRegistry.get_available_games()}")
