@@ -14,21 +14,49 @@ from textual import work
 import core.utils.settings as settings
 from core.network.network_utils import NetworkUtils
 from core.server.server import Server
+from core.adapters import (
+    register_default_adapters,
+)
+from core.adapters.dota2.rcon_client import SourceRCONClient
 
+# Register available game adapters
+register_default_adapters()
+
+# OpenArena server (used when game_type is openarena)
 server = Server()
+
+# Dota 2 RCON client (used when game_type is dota2)
+rcon_client: SourceRCONClient | None = None
+rcon_connected = False
+
 async_loop = None
 async_thread = None
 cleanup_done = False
+game_type = settings.game_type
 
 def cleanup():
-    global cleanup_done
+    global cleanup_done, rcon_client, rcon_connected
     if cleanup_done:
         return
     cleanup_done = True
 
     logging.info("Starting cleanup...")
 
-    server.dispose()
+    if game_type == "dota2":
+        # Disconnect RCON
+        if rcon_client and rcon_connected:
+            try:
+                if async_loop and async_loop.is_running():
+                    future = asyncio.run_coroutine_threadsafe(
+                        rcon_client.disconnect(), async_loop
+                    )
+                    future.result(timeout=5)
+            except Exception as e:
+                logging.warning(f"RCON disconnect error: {e}")
+            rcon_connected = False
+    else:
+        # OpenArena cleanup
+        server.dispose()
 
     if getattr(settings, 'enable_latency_control', False):
         try:
@@ -79,20 +107,30 @@ class AdminApp(App):
     BINDINGS = [Binding("q", "quit", "Quit")]
 
     def compose(self) -> ComposeResult:
+        # Show different controls based on game type
+        is_dota2 = game_type == "dota2"
+        game_label = f"Game: {game_type.upper()}"
+
+        # Different button labels for Dota 2
+        start_label = "Connect RCON" if is_dota2 else "Start Server"
+        stop_label = "Disconnect" if is_dota2 else "Kill Server"
+
         yield Vertical(
             Horizontal(
+                Label(game_label, id="game-type-label"),
                 Input(placeholder="Enter command...", id="input"),
-                Label("State: Warmup", id="status-state"),
-                Label("Round: 0/5", id="status-round"),
-                Button("Add Bot", id="add-bot-btn", variant="primary"),
-                Button("Remove All Bot", id="remove-bot-btn", variant="default"),
+                Label("State: Disconnected" if is_dota2 else "State: Warmup", id="status-state"),
+                Label("" if is_dota2 else "Round: 0/5", id="status-round"),
+                # Only show bot controls for OpenArena
+                Button("Add Bot", id="add-bot-btn", variant="primary", disabled=is_dota2),
+                Button("Remove All Bot", id="remove-bot-btn", variant="default", disabled=is_dota2),
                 id="top-panel",
             ),
             Horizontal(
                 Vertical(
                     Horizontal(
-                        Button("Start Server", id="start-server-btn", variant="success"),
-                        Button("Kill Server", id="kill-server-btn", variant="error"),
+                        Button(start_label, id="start-server-btn", variant="success"),
+                        Button(stop_label, id="kill-server-btn", variant="error"),
                         id="server-control-buttons",
                     ),
                     DataTable(id="user-table"),
@@ -111,6 +149,69 @@ class AdminApp(App):
         server.start_server()
         logging.info("Server process started, entering message loop...")
         server.run_server_loop()
+
+    @work(thread=True)
+    def connect_rcon_worker(self):
+        """Connect to Dota 2 server via RCON in background thread."""
+        global rcon_client, rcon_connected
+
+        logging.info(f"Connecting to RCON at {settings.dota2_rcon_host}:{settings.dota2_rcon_port}...")
+
+        rcon_client = SourceRCONClient(
+            host=settings.dota2_rcon_host,
+            port=settings.dota2_rcon_port,
+            password=settings.dota2_rcon_password,
+            timeout=10.0,
+        )
+
+        # Run async connect in the async loop
+        async def do_connect():
+            global rcon_connected
+            try:
+                await rcon_client.connect()
+                rcon_connected = True
+                logging.info("RCON connected successfully!")
+
+                # Get initial status
+                status = await rcon_client.execute("status")
+                self.call_from_thread(self._update_server_log, f"Connected!\n{status}")
+                self.call_from_thread(self._update_connection_state, True)
+
+            except Exception as e:
+                logging.error(f"RCON connection failed: {e}")
+                rcon_connected = False
+                self.call_from_thread(self._update_connection_state, False)
+
+        if async_loop and async_loop.is_running():
+            future = asyncio.run_coroutine_threadsafe(do_connect(), async_loop)
+            try:
+                future.result(timeout=15)
+            except Exception as e:
+                logging.error(f"RCON connect error: {e}")
+
+    def _update_server_log(self, message: str):
+        """Update server log from worker thread."""
+        try:
+            server_log = self.query_one("#server-log", Log)
+            for line in message.split('\n'):
+                server_log.write_line(line)
+        except Exception:
+            pass
+
+    def _update_connection_state(self, connected: bool):
+        """Update UI to reflect connection state."""
+        try:
+            state_label = self.query_one("#status-state", Label)
+            start_btn = self.query_one("#start-server-btn", Button)
+
+            if connected:
+                state_label.update("State: Connected")
+                start_btn.disabled = True
+            else:
+                state_label.update("State: Disconnected")
+                start_btn.disabled = False
+        except Exception:
+            pass
 
     def on_mount(self) -> None:
         global async_thread
@@ -154,8 +255,39 @@ class AdminApp(App):
             if value.lower() in ['quit', 'exit']:
                 self.action_quit()
             else:
-                server.send_command(value)
+                if game_type == "dota2":
+                    self.send_rcon_command(value)
+                else:
+                    server.send_command(value)
                 message.input.value = ""
+
+    def send_rcon_command(self, command: str):
+        """Send command via RCON and display response."""
+        logging.info(f"send_rcon_command called with: {command}")
+        logging.info(f"rcon_connected={rcon_connected}, rcon_client={rcon_client is not None}")
+
+        if not rcon_connected or not rcon_client:
+            logging.warning("RCON not connected - cannot send command")
+            return
+
+        if not async_loop or not async_loop.is_running():
+            logging.warning("Async loop not running - cannot send command")
+            return
+
+        logging.info(f"Scheduling RCON command: {command}")
+
+        async def do_command():
+            try:
+                logging.info(f"Executing RCON command: {command}")
+                response = await rcon_client.execute(command)
+                logging.info(f"RCON response received: {response[:100] if response else '(empty)'}...")
+                # Use call_from_thread for thread-safe UI update
+                self.call_from_thread(self._update_server_log, f"> {command}\n{response}")
+            except Exception as e:
+                logging.error(f"RCON command error: {e}", exc_info=True)
+
+        future = asyncio.run_coroutine_threadsafe(do_command(), async_loop)
+        logging.info(f"Command scheduled, future: {future}")
 
     def action_quit(self) -> None:
         def check_quit(confirmed: bool | None) -> None:
@@ -241,12 +373,41 @@ class AdminApp(App):
             logging.info("All bots removal requested")
 
         elif event.button.id == "start-server-btn":
-            self.run_server_worker()
-            self.update_start_button()
+            if game_type == "dota2":
+                # Connect via RCON
+                self.connect_rcon_worker()
+            else:
+                # Start OpenArena server
+                self.run_server_worker()
+                self.update_start_button()
 
         elif event.button.id == "kill-server-btn":
-            server.send_command("killserver")
-            logging.info("Kill server command sent")
+            if game_type == "dota2":
+                # Disconnect RCON
+                self.disconnect_rcon()
+            else:
+                server.send_command("killserver")
+                logging.info("Kill server command sent")
+
+    def disconnect_rcon(self):
+        """Disconnect from RCON server."""
+        global rcon_connected
+
+        if not rcon_client:
+            return
+
+        async def do_disconnect():
+            global rcon_connected
+            try:
+                await rcon_client.disconnect()
+                rcon_connected = False
+                logging.info("RCON disconnected")
+                self.call_from_thread(self._update_connection_state, False)
+            except Exception as e:
+                logging.error(f"RCON disconnect error: {e}")
+
+        if async_loop and async_loop.is_running():
+            asyncio.run_coroutine_threadsafe(do_disconnect(), async_loop)
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         if event.data_table.id == "user-table":
