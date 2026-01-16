@@ -1,5 +1,7 @@
 import asyncio
+import concurrent.futures
 import logging
+from collections import OrderedDict
 from logging.handlers import RotatingFileHandler
 import signal
 import sys
@@ -17,7 +19,7 @@ from core.server.server import Server
 from core.adapters import (
     register_default_adapters,
 )
-from core.adapters.dota2.rcon_client import SourceRCONClient
+from core.adapters.amp.amp_api_client import AMPAPIClient, AMPAPIError
 
 # Register available game adapters
 register_default_adapters()
@@ -25,9 +27,12 @@ register_default_adapters()
 # OpenArena server (used when game_type is openarena)
 server = Server()
 
-# Dota 2 RCON client (used when game_type is dota2)
-rcon_client: SourceRCONClient | None = None
-rcon_connected = False
+# AMP API client (used when game_type is amp)
+amp_client: AMPAPIClient | None = None
+amp_connected = False
+amp_polling_task: "concurrent.futures.Future[None] | None" = None
+amp_seen_messages: OrderedDict[str, None] = OrderedDict()
+AMP_MAX_SEEN_CACHE = 1000
 
 async_loop = None
 async_thread = None
@@ -35,25 +40,28 @@ cleanup_done = False
 game_type = settings.game_type
 
 def cleanup():
-    global cleanup_done, rcon_client, rcon_connected
+    global cleanup_done, amp_client, amp_connected, amp_polling_task
     if cleanup_done:
         return
     cleanup_done = True
 
     logging.info("Starting cleanup...")
 
-    if game_type == "dota2":
-        # Disconnect RCON
-        if rcon_client and rcon_connected:
+    if game_type == "amp":
+        # Stop polling and disconnect AMP
+        if amp_polling_task and not amp_polling_task.done():
+            amp_polling_task.cancel()
+
+        if amp_client and amp_connected:
             try:
                 if async_loop and async_loop.is_running():
                     future = asyncio.run_coroutine_threadsafe(
-                        rcon_client.disconnect(), async_loop
+                        amp_client.close(), async_loop
                     )
                     future.result(timeout=5)
             except Exception as e:
-                logging.warning(f"RCON disconnect error: {e}")
-            rcon_connected = False
+                logging.warning(f"AMP disconnect error: {e}")
+            amp_connected = False
     else:
         # OpenArena cleanup
         server.dispose()
@@ -108,22 +116,22 @@ class AdminApp(App):
 
     def compose(self) -> ComposeResult:
         # Show different controls based on game type
-        is_dota2 = game_type == "dota2"
+        is_amp = game_type == "amp"
         game_label = f"Game: {game_type.upper()}"
 
-        # Different button labels for Dota 2
-        start_label = "Connect RCON" if is_dota2 else "Start Server"
-        stop_label = "Disconnect" if is_dota2 else "Kill Server"
+        # Different button labels for AMP
+        start_label = "Connect AMP" if is_amp else "Start Server"
+        stop_label = "Disconnect" if is_amp else "Kill Server"
 
         yield Vertical(
             Horizontal(
                 Label(game_label, id="game-type-label"),
                 Input(placeholder="Enter command...", id="input"),
-                Label("State: Disconnected" if is_dota2 else "State: Warmup", id="status-state"),
-                Label("" if is_dota2 else "Round: 0/5", id="status-round"),
+                Label("State: Disconnected" if is_amp else "State: Warmup", id="status-state"),
+                Label("" if is_amp else "Round: 0/5", id="status-round"),
                 # Only show bot controls for OpenArena
-                Button("Add Bot", id="add-bot-btn", variant="primary", disabled=is_dota2),
-                Button("Remove All Bot", id="remove-bot-btn", variant="default", disabled=is_dota2),
+                Button("Add Bot", id="add-bot-btn", variant="primary", disabled=is_amp),
+                Button("Remove All Bot", id="remove-bot-btn", variant="default", disabled=is_amp),
                 id="top-panel",
             ),
             Horizontal(
@@ -151,43 +159,63 @@ class AdminApp(App):
         server.run_server_loop()
 
     @work(thread=True)
-    def connect_rcon_worker(self):
-        """Connect to Dota 2 server via RCON in background thread."""
-        global rcon_client, rcon_connected
+    def connect_amp_worker(self):
+        """Connect to game server via AMP API in background thread."""
+        global amp_client, amp_connected, amp_seen_messages
 
-        logging.info(f"Connecting to RCON at {settings.dota2_rcon_host}:{settings.dota2_rcon_port}...")
+        logging.info(f"Connecting to AMP at {settings.amp_base_url}...")
 
-        rcon_client = SourceRCONClient(
-            host=settings.dota2_rcon_host,
-            port=settings.dota2_rcon_port,
-            password=settings.dota2_rcon_password,
-            timeout=10.0,
+        amp_client = AMPAPIClient(
+            base_url=settings.amp_base_url,
+            username=settings.amp_username,
+            password=settings.amp_password,
+            instance_id=settings.amp_instance_id,
+            timeout=30.0,
         )
+        amp_seen_messages.clear()
 
         # Run async connect in the async loop
         async def do_connect():
-            global rcon_connected
+            global amp_connected
             try:
-                await rcon_client.connect()
-                rcon_connected = True
-                logging.info("RCON connected successfully!")
+                await amp_client.login()
+                amp_connected = True
+                logging.info("AMP connected successfully!")
 
                 # Get initial status
-                status = await rcon_client.execute("status")
-                self.call_from_thread(self._update_server_log, f"Connected!\n{status}")
+                try:
+                    status = await amp_client.get_status()
+                    state = status.get("State", "Unknown")
+                    self.call_from_thread(
+                        self._update_server_log,
+                        f"Connected to AMP!\nServer State: {state}"
+                    )
+                except AMPAPIError:
+                    self.call_from_thread(
+                        self._update_server_log,
+                        "Connected to AMP!"
+                    )
+
                 self.call_from_thread(self._update_connection_state, True)
 
-            except Exception as e:
-                logging.error(f"RCON connection failed: {e}")
-                rcon_connected = False
+                # Start console polling
+                self.call_from_thread(self._start_console_polling)
+
+            except AMPAPIError as e:
+                logging.error(f"AMP connection failed: {e}")
+                amp_connected = False
                 self.call_from_thread(self._update_connection_state, False)
+                self.call_from_thread(
+                    self._update_server_log,
+                    f"Connection failed: {e}"
+                )
 
         if async_loop and async_loop.is_running():
             future = asyncio.run_coroutine_threadsafe(do_connect(), async_loop)
             try:
-                future.result(timeout=15)
+                future.result(timeout=35)
             except Exception as e:
-                logging.error(f"RCON connect error: {e}")
+                logging.error(f"AMP connect error: {e}")
 
     def _update_server_log(self, message: str):
         """Update server log from worker thread."""
@@ -212,6 +240,54 @@ class AdminApp(App):
                 start_btn.disabled = False
         except Exception:
             pass
+
+    def _start_console_polling(self):
+        """Start background console polling task."""
+        global amp_polling_task
+
+        if async_loop and async_loop.is_running():
+            amp_polling_task = asyncio.run_coroutine_threadsafe(
+                self._poll_console_loop(), async_loop
+            )
+
+    async def _poll_console_loop(self):
+        """Poll AMP console for new messages."""
+        global amp_seen_messages
+
+        poll_interval = settings.amp_poll_interval
+
+        while amp_connected and not cleanup_done:
+            try:
+                updates = await amp_client.get_updates()
+
+                for entry in updates.console_entries:
+                    msg_key = f"{entry.timestamp.isoformat()}:{entry.contents}"
+
+                    if msg_key not in amp_seen_messages:
+                        amp_seen_messages[msg_key] = None
+
+                        # FIFO eviction
+                        while len(amp_seen_messages) > AMP_MAX_SEEN_CACHE:
+                            amp_seen_messages.popitem(last=False)
+
+                        # Format and display
+                        ts = entry.timestamp.strftime("%H:%M:%S")
+                        line = f"[{ts}] {entry.contents}"
+                        self.call_from_thread(self._update_server_log, line)
+
+            except AMPAPIError as e:
+                logging.warning(f"Console poll error: {e}")
+                # Attempt reconnect
+                try:
+                    await amp_client.login()
+                    logging.info("AMP reconnected")
+                except AMPAPIError:
+                    logging.error("AMP reconnection failed")
+                    break
+            except Exception as e:
+                logging.error(f"Polling error: {e}")
+
+            await asyncio.sleep(poll_interval)
 
     def on_mount(self) -> None:
         global async_thread
@@ -255,39 +331,38 @@ class AdminApp(App):
             if value.lower() in ['quit', 'exit']:
                 self.action_quit()
             else:
-                if game_type == "dota2":
-                    self.send_rcon_command(value)
+                if game_type == "amp":
+                    self.send_amp_command(value)
                 else:
                     server.send_command(value)
                 message.input.value = ""
 
-    def send_rcon_command(self, command: str):
-        """Send command via RCON and display response."""
-        logging.info(f"send_rcon_command called with: {command}")
-        logging.info(f"rcon_connected={rcon_connected}, rcon_client={rcon_client is not None}")
-
-        if not rcon_connected or not rcon_client:
-            logging.warning("RCON not connected - cannot send command")
+    def send_amp_command(self, command: str):
+        """Send command via AMP and display in server log."""
+        if not amp_connected or not amp_client:
+            logging.warning("AMP not connected - cannot send command")
             return
 
         if not async_loop or not async_loop.is_running():
             logging.warning("Async loop not running - cannot send command")
             return
 
-        logging.info(f"Scheduling RCON command: {command}")
+        # Show command immediately in log
+        self._update_server_log(f"> {command}")
 
         async def do_command():
             try:
-                logging.info(f"Executing RCON command: {command}")
-                response = await rcon_client.execute(command)
-                logging.info(f"RCON response received: {response[:100] if response else '(empty)'}...")
-                # Use call_from_thread for thread-safe UI update
-                self.call_from_thread(self._update_server_log, f"> {command}\n{response}")
-            except Exception as e:
-                logging.error(f"RCON command error: {e}", exc_info=True)
+                await amp_client.send_console_message(command)
+                logging.debug(f"Sent AMP command: {command}")
+                # Response will appear via polling - no need to wait
+            except AMPAPIError as e:
+                logging.error(f"AMP command error: {e}")
+                self.call_from_thread(
+                    self._update_server_log,
+                    f"Command error: {e}"
+                )
 
-        future = asyncio.run_coroutine_threadsafe(do_command(), async_loop)
-        logging.info(f"Command scheduled, future: {future}")
+        asyncio.run_coroutine_threadsafe(do_command(), async_loop)
 
     def action_quit(self) -> None:
         def check_quit(confirmed: bool | None) -> None:
@@ -373,38 +448,43 @@ class AdminApp(App):
             logging.info("All bots removal requested")
 
         elif event.button.id == "start-server-btn":
-            if game_type == "dota2":
-                # Connect via RCON
-                self.connect_rcon_worker()
+            if game_type == "amp":
+                # Connect via AMP API
+                self.connect_amp_worker()
             else:
                 # Start OpenArena server
                 self.run_server_worker()
                 self.update_start_button()
 
         elif event.button.id == "kill-server-btn":
-            if game_type == "dota2":
-                # Disconnect RCON
-                self.disconnect_rcon()
+            if game_type == "amp":
+                # Disconnect AMP
+                self.disconnect_amp()
             else:
                 server.send_command("killserver")
                 logging.info("Kill server command sent")
 
-    def disconnect_rcon(self):
-        """Disconnect from RCON server."""
-        global rcon_connected
+    def disconnect_amp(self):
+        """Disconnect from AMP server."""
+        global amp_connected, amp_polling_task
 
-        if not rcon_client:
+        if not amp_client:
             return
 
+        # Stop polling first
+        if amp_polling_task:
+            amp_polling_task.cancel()
+            amp_polling_task = None
+
         async def do_disconnect():
-            global rcon_connected
+            global amp_connected
             try:
-                await rcon_client.disconnect()
-                rcon_connected = False
-                logging.info("RCON disconnected")
+                await amp_client.close()
+                amp_connected = False
+                logging.info("AMP disconnected")
                 self.call_from_thread(self._update_connection_state, False)
             except Exception as e:
-                logging.error(f"RCON disconnect error: {e}")
+                logging.error(f"AMP disconnect error: {e}")
 
         if async_loop and async_loop.is_running():
             asyncio.run_coroutine_threadsafe(do_disconnect(), async_loop)

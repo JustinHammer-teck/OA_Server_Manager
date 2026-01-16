@@ -8,13 +8,21 @@ from typing import Any, AsyncIterator, Callable, Dict, List, Optional
 
 class ConnectionType(Enum):
     """Type of connection to game server."""
+
     SUBPROCESS = "subprocess"  # stdin/stdout/stderr (OpenArena)
-    RCON = "rcon"              # Source RCON TCP protocol (Dota 2, CS2)
-    WEBSOCKET = "websocket"    # For future games
+    RCON = "rcon"  # Source RCON TCP protocol (Dota 2, CS2)
+    WEBSOCKET = "websocket"  # For future games
 
 
 class MessageType(Enum):
-    """Game-agnostic message types."""
+    """Game-agnostic message types.
+
+    This enum provides a unified set of message types for all game adapters.
+    Legacy aliases are provided for backward compatibility during migration
+    from the old messaging system.
+    """
+
+    # Core adapter types
     CLIENT_CONNECT = "client_connect"
     CLIENT_DISCONNECT = "client_disconnect"
     GAME_START = "game_start"
@@ -28,10 +36,20 @@ class MessageType(Enum):
     GAME_INITIALIZATION = "game_initialization"
     UNKNOWN = "unknown"
 
+    # Legacy aliases (for migration from core/messaging/message_processor.py)
+    # These map legacy names to their new adapter equivalents
+    CLIENT_CONNECTING = "client_connect"  # -> CLIENT_CONNECT
+    MATCH_END_FRAGLIMIT = "game_end"  # -> GAME_END
+    MATCH_END_TIMELIMIT = "game_end"  # -> GAME_END
+    WARMUP_STATE = "warmup_start"  # -> WARMUP_START
+    SHUTDOWN_GAME = "server_shutdown"  # -> SERVER_SHUTDOWN
+    STATUS_LINE = "status_update"  # -> STATUS_UPDATE
+
 
 @dataclass
 class ParsedMessage:
     """Normalized parsed message structure."""
+
     message_type: MessageType
     raw_message: str
     data: Dict[str, Any] = field(default_factory=dict)
@@ -41,6 +59,7 @@ class ParsedMessage:
 @dataclass
 class GameAdapterConfig:
     """Configuration for game adapter initialization."""
+
     game_type: str
     host: str = "localhost"
     port: int = 27015
@@ -111,6 +130,33 @@ class GameAdapter(ABC):
     def stop_server(self) -> None:
         """Stop/terminate the game server."""
         pass
+
+    def send_command_sync(self, command: str) -> None:
+        """
+        Synchronous command wrapper for callback compatibility.
+
+        This default implementation handles various event loop scenarios:
+        - If no event loop exists, creates one with asyncio.run()
+        - If a loop exists but isn't running, uses run_until_complete()
+        - If a loop is already running, creates a task
+
+        Args:
+            command: The command string to send to the game server.
+
+        Returns:
+            None (fire-and-forget pattern for callbacks).
+        """
+        import asyncio
+
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                asyncio.create_task(self.send_command(command))
+            else:
+                loop.run_until_complete(self.send_command(command))
+        except RuntimeError:
+            # No event loop exists - create one
+            asyncio.run(self.send_command(command))
 
 
 class BaseMessageProcessor(ABC):

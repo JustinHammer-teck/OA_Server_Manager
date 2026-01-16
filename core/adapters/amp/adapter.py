@@ -117,10 +117,6 @@ class AMPGameAdapter(GameAdapter):
             self.logger.error(f"Failed to send command: {e}")
             return None
 
-    def send_command_sync(self, command: str) -> None:
-        """Synchronous command sending for callback compatibility."""
-        _run_async(lambda: self.send_command(command))
-
     async def read_messages(self) -> AsyncIterator[str]:
         """
         Read console messages from AMP via polling.

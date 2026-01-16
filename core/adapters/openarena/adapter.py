@@ -55,23 +55,15 @@ class OAGameAdapter(GameAdapter):
                 self.logger.error(f"Failed to send command: {e}")
         return None
 
-    def send_command_sync(self, command: str) -> None:
-        """Synchronous command sending for callback compatibility."""
-        if self._process and self._process.poll() is None:
-            try:
-                self.logger.debug(f"CMD_SEND: {command}")
-                self._process.stdin.write(f"{command}\r\n".encode())
-                self._process.stdin.flush()
-            except (BrokenPipeError, OSError) as e:
-                self.logger.error(f"Failed to send command: {e}")
-
     async def read_messages(self) -> AsyncIterator[str]:
         """Yield messages from stderr."""
         while not self._shutdown_event.is_set() and self.is_connected:
             try:
-                line = self._process.stderr.readline().decode(
-                    "utf-8", errors="replace"
-                ).rstrip()
+                line = (
+                    self._process.stderr.readline()
+                    .decode("utf-8", errors="replace")
+                    .rstrip()
+                )
                 if line:
                     yield line
             except (OSError, ValueError):
@@ -100,14 +92,30 @@ class OAGameAdapter(GameAdapter):
 
         server_args = [
             binary_path,
-            "+set", "dedicated", "1",
-            "+set", "net_port", str(port),
-            "+set", "com_legacyprotocol", "71",
-            "+set", "com_protocol", "71",
-            "+set", "sv_pure", "0",
-            "+set", "sv_master1", "dpmaster.deathmask.net",
-            "+set", "sv_maxclients", "4",
-            "+set", "cl_motd", "Welcome To ASTRID lab",
+            "+set",
+            "dedicated",
+            "1",
+            "+set",
+            "net_port",
+            str(port),
+            "+set",
+            "com_legacyprotocol",
+            "71",
+            "+set",
+            "com_protocol",
+            "71",
+            "+set",
+            "sv_pure",
+            "0",
+            "+set",
+            "sv_master1",
+            "dpmaster.deathmask.net",
+            "+set",
+            "sv_maxclients",
+            "4",
+            "+set",
+            "cl_motd",
+            "Welcome To ASTRID lab",
         ]
 
         # Add startup config from settings

@@ -88,22 +88,6 @@ class Dota2GameAdapter(GameAdapter):
             self.logger.error(f"RCON command failed: {e}")
             return None
 
-    def send_command_sync(self, command: str) -> None:
-        """
-        Synchronous command sending for callback compatibility.
-
-        Creates a task to send the command asynchronously.
-        """
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                asyncio.create_task(self.send_command(command))
-            else:
-                loop.run_until_complete(self.send_command(command))
-        except RuntimeError:
-            # No event loop - create one
-            asyncio.run(self.send_command(command))
-
     async def read_messages(self) -> AsyncIterator[str]:
         """
         Read messages from server via RCON polling.
