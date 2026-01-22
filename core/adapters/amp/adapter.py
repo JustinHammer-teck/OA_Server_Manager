@@ -1,4 +1,5 @@
 """AMP (CubeCoders) game adapter using HTTP API."""
+from __future__ import annotations
 
 import asyncio
 import logging
@@ -9,6 +10,7 @@ from core.adapters.base import ConnectionType, GameAdapter, GameAdapterConfig
 from core.adapters.amp.amp_api_client import AMPAPIClient, AMPAPIError
 
 T = TypeVar("T")
+from core.adapters.amp.message_processor import AMPMessageProcessor
 
 
 def _parse_credentials(password_field: str | None) -> tuple[str, str]:
@@ -66,6 +68,10 @@ class AMPGameAdapter(GameAdapter):
         )  # Ordered for proper LRU eviction
         self._max_seen_cache = 1000
         self.logger = logging.getLogger(__name__)
+
+        self.message_processor = AMPMessageProcessor(
+            send_command_callback=lambda cmd: asyncio.create_task(self.send_command(cmd))
+            )
 
     @property
     def connection_type(self) -> ConnectionType:
@@ -140,7 +146,9 @@ class AMPGameAdapter(GameAdapter):
                         while len(self._seen_messages) > self._max_seen_cache:
                             self._seen_messages.popitem(last=False)
 
-                        yield f"CONSOLE:{entry.source}:{entry.contents}"
+                        parsed = self.message_processor.process_message(entry.contents)
+                        yield parsed
+
 
                 if updates.status:
                     state = updates.status.get("State", "Unknown")
