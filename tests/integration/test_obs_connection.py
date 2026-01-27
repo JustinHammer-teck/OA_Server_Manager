@@ -10,7 +10,7 @@ import os
 # Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from core.obs_controller import OBSWebSocketClient
+from core.obs.controller import OBSWebSocketClient
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)

@@ -24,7 +24,7 @@ import os
 # Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from core.obs_controller import OBSWebSocketClient
+from core.obs.controller import OBSWebSocketClient
 
 
 async def test_obs_connection(host: str, port: int, password: str = None):
