@@ -5,7 +5,6 @@ from core.adapters.base import MessageType
 
 
 class TestYourGameMessageProcessor(unittest.TestCase):
-
     def setUp(self):
         self.processor = AMPMessageProcessor()
 
@@ -13,7 +12,7 @@ class TestYourGameMessageProcessor(unittest.TestCase):
         messages = [
             "id     time ping loss      state   rate adr name",
             "3    00:05   12    0   spawning  80000 127.190.6.117:52271 'quangminh2479'",
-            ""  # empty line ends status
+            "",  # empty line ends status
         ]
 
         parsed_messages = []
@@ -22,8 +21,8 @@ class TestYourGameMessageProcessor(unittest.TestCase):
             parsed_messages.append(parsed)
         # Find STATUS_COMPLETE
         status_complete = [
-            p for p in parsed_messages
-            
+            p
+            for p in parsed_messages
             if p.message_type == MessageType.STATUS_UPDATE
             and p.data
             and p.data.get("status_complete")

@@ -5,7 +5,6 @@ from core.adapters.amp.status_parser import AMPStatusParser
 
 
 class TestAMPStatusParser(unittest.TestCase):
-
     def setUp(self):
         self.parser = AMPStatusParser()
 
@@ -14,7 +13,9 @@ class TestAMPStatusParser(unittest.TestCase):
         self.assertTrue(self.parser.is_status_header(header))
 
     def test_parse_valid_client_line(self):
-        line = "3    00:05   12    0   spawning  80000 127.190.6.117:52271 'quangminh2479'"
+        line = (
+            "3    00:05   12    0   spawning  80000 127.190.6.117:52271 'quangminh2479'"
+        )
 
         client = self.parser.parse_client_line(line)
 

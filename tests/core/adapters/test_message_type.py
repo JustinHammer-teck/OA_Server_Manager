@@ -4,6 +4,7 @@ This module tests that the MessageType enum in core/adapters/base.py
 has all required adapter message types plus legacy aliases for backward
 compatibility during migration.
 """
+
 from enum import Enum
 
 from core.adapters.base import MessageType

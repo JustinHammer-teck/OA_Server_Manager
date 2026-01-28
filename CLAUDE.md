@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project Overview
 
 ASTRID Framework is a multi-game server management framework with:
-- **Game-agnostic adapter layer** supporting multiple games (OpenArena, Dota 2)
+- **Game-agnostic adapter layer** supporting multiple games (OpenArena, AMP)
 - Dedicated game server lifecycle management
 - Real-time client connection handling (human vs bot detection)
 - OBS Studio integration for automated recording via WebSocket
@@ -59,36 +59,35 @@ uv run tests/tui_test.py
 ```
 core/
 ├── adapters/                      # Game-agnostic adapter layer
-│   ├── base.py                    # Abstract interfaces (GameAdapter, BaseMessageProcessor, BaseGameManager)
+│   ├── base.py                    # Abstract interfaces (GameAdapter, BaseMessageProcessor, BaseGameManager, ClientTracker Protocol)
 │   ├── registry.py                # GameAdapterRegistry factory
+│   ├── status_parser.py           # Base StatusParser class with FSM
 │   ├── openarena/                 # OpenArena implementation
 │   │   ├── adapter.py             # Subprocess-based adapter (stdin/stderr)
 │   │   ├── message_processor.py   # OA-specific regex parsing
+│   │   ├── status_parser.py       # OA status output parser
 │   │   └── game_manager.py        # OA commands (addbot, set, etc.)
-│   ├── dota2/                     # Dota 2 implementation (legacy RCON)
-│   │   ├── rcon_client.py         # Source RCON protocol client (async TCP)
-│   │   ├── adapter.py             # RCON-based adapter
-│   │   ├── message_processor.py   # Dota 2 status parsing
-│   │   └── game_manager.py        # Dota 2 commands
 │   └── amp/                       # AMP (CubeCoders) implementation
 │       ├── amp_api_client.py      # HTTP API client for AMP panel
-│       └── adapter.py             # AMP-based adapter (HTTP polling)
-├── server/server.py               # Main orchestrator (OpenArena legacy)
+│       ├── adapter.py             # AMP-based adapter (HTTP polling)
+│       ├── message_processor.py   # AMP console message parsing
+│       └── status_parser.py       # AMP status output parser
+├── server/
+│   ├── server.py                  # [DEPRECATED] Legacy OA orchestrator — use adapters instead
+│   └── shutdown_strategies.py     # Strategy pattern for server shutdown
 ├── network/
 │   ├── network_manager.py         # Client tracking (human vs bot, IPs, latencies)
 │   └── network_utils.py           # TC + nftables latency rules (requires sudo)
 ├── game/
 │   ├── game_manager.py            # Bot management, game config
 │   └── state_manager.py           # FSM: WAITING → WARMUP → RUNNING
-├── messaging/
-│   └── message_processor.py       # Legacy OA message processor
 ├── obs/
-│   ├── connection_manager.py      # Multi-client OBS WebSocket connections
-│   ├── manager.py                 # OBS orchestration
-│   └── controller.py              # WebSocket client implementation
+│   ├── controller.py              # Layer 1: OBSWebSocketClient — WebSocket 5.x protocol, zero game coupling
+│   ├── manager.py                 # Layer 2: OBSManager — Multi-client connection pool, zero game coupling
+│   └── connection_manager.py      # Layer 3: OBSConnectionManager — Game integration via ClientTracker Protocol + kick_client_callback
 └── utils/
     ├── settings.py                # .env configuration loader (game type selection)
-    └── display_utils.py           # CLI output formatting
+    └── display_utils.py           # CLI output formatting (accepts ClientTracker Protocol)
 ```
 
 **Game Adapter Pattern:**
@@ -105,6 +104,7 @@ core/
 | Commands | Fire-and-forget | Fire-and-forget (via API) |
 | Messages | Continuous stderr stream | Polling via GetUpdates |
 | Auth | None | Username/password |
+| Kick Command | `clientkick {id}` | `kickid {id}` |
 
 **Threading Model:**
 - Main thread: Server process lifecycle
@@ -117,6 +117,25 @@ core/
 - Client discovery via "status" command parsing
 - Latency control requires root/sudo for TC qdisc and nftables rules
 - OBS uses WebSocket 5.x protocol with optional password auth
+- `ClientTracker` Protocol (`@runtime_checkable`) — OBS and display code depend on a typed contract, not concrete `NetworkManager`
+- `kick_client_callback` — each adapter injects its game-specific kick command into `OBSConnectionManager`, avoiding reverse dependencies
+- Compositional ownership — each adapter owns its sub-managers (`_network_manager`, `_obs_connection_manager`, etc.)
+- Shutdown strategies use the Strategy pattern, accessing adapter sub-managers for clean teardown
+
+**OBS 3-Layer Architecture:**
+```
+Layer 1: OBSWebSocketClient (controller.py)       — WebSocket 5.x protocol, zero game coupling
+Layer 2: OBSManager (manager.py)                   — Multi-client connection pool, zero game coupling
+Layer 3: OBSConnectionManager (connection_manager.py) — Game integration via ClientTracker Protocol + kick_client_callback
+```
+Layers 1-2 are pure OBS concerns. Layer 3 bridges OBS to the game adapter through Protocol-based dependency inversion.
+
+**Deprecated Code:**
+
+| Module | Status | Replacement |
+|--------|--------|-------------|
+| `core/server/server.py` | Deprecated | Use adapters via `GameAdapterRegistry` |
+| `main.py` (OA path) | Legacy | Use `tui_main.py` |
 
 ## Configuration
 

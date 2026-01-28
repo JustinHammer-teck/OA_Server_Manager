@@ -3,6 +3,7 @@ import logging
 import subprocess
 import threading
 import time
+import warnings
 from subprocess import PIPE, Popen
 from typing import Optional
 
@@ -31,7 +32,19 @@ class Server:
     """
 
     def __init__(self):
-        """Initialize server with all specialized managers."""
+        """Initialize server with all specialized managers.
+
+        .. deprecated::
+            Use ``OAGameAdapter`` or ``AMPGameAdapter`` via the adapter
+            registry instead.  The Server class is retained only for the
+            legacy ``main.py`` CLI entry-point.
+        """
+        warnings.warn(
+            "Server class is deprecated. Use GameAdapter implementations "
+            "(OAGameAdapter / AMPGameAdapter) via the adapter registry instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self.logger = logging.getLogger(__name__)
         self.nplayers_threshold = settings.nplayers_threshold
         self._output_handler = None

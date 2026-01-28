@@ -9,7 +9,10 @@ from core.adapters.amp.status_parser import AMPStatusParser
 
 class AMPMessageProcessor(BaseMessageProcessor):
     """
-    Message processor for custom Quake-like server.
+    Message processor for Dota 2 server via AMP.
+
+    Handles line-by-line console entries with stateful parsing
+    for multi-line status output.
     """
 
     def __init__(self, send_command_callback: Optional[Callable[[str], None]] = None):
@@ -17,7 +20,8 @@ class AMPMessageProcessor(BaseMessageProcessor):
         self.logger = logging.getLogger(__name__)
 
         self._status_parser = AMPStatusParser()
-        self._status_client_count = 0
+        self._in_player_section = False
+        self._collected_clients: List[Dict] = []
 
     def get_supported_message_types(self) -> List[MessageType]:
         return [
@@ -25,28 +29,50 @@ class AMPMessageProcessor(BaseMessageProcessor):
         ]
 
     def process_message(self, raw_message: str) -> ParsedMessage:
+        """
+        Process a single console entry (line-by-line from AMP).
+
+        Uses stateful parsing to handle multi-line status output
+        that arrives as separate console entries.
+        """
         raw_message = raw_message.strip()
 
         if not raw_message:
-            if self._status_parser.is_parsing:
-                return self._complete_status_parsing()
+            self.logger.debug("Empty message received, skipping")
             return ParsedMessage(MessageType.UNKNOWN, raw_message)
 
-        # Detect status header
+        # Check for player section start marker
         if self._status_parser.is_status_header(raw_message):
-            self.logger.debug("Status header detected, starting parsing")
-            self._status_parser.start_parsing()
-            self._status_client_count = 0
-            self._status_parser.add_line(raw_message)
+            self.logger.debug(f"Player section START: {raw_message}")
+            self._in_player_section = True
+            self._collected_clients = []
             return ParsedMessage(MessageType.STATUS_UPDATE, raw_message)
 
-        # Continue status parsing
-        if self._status_parser.is_parsing:
-            self._status_parser.add_line(raw_message)
+        # Check for section end marker (only if we're in player section)
+        if self._in_player_section and self._status_parser.is_section_end(raw_message):
+            self.logger.debug(
+                f"Player section END: {len(self._collected_clients)} clients collected"
+            )
+            self._in_player_section = False
+            clients = self._collected_clients.copy()
+            self._collected_clients = []
+            return ParsedMessage(
+                MessageType.STATUS_UPDATE,
+                raw_message,
+                {"clients": clients, "status_complete": True},
+            )
 
+        # If we're in the player section, try to parse
+        if self._in_player_section:
+            # Skip column header line
+            if self._status_parser.is_column_header(raw_message):
+                self.logger.debug(f"Column header, skipping: {raw_message}")
+                return ParsedMessage(MessageType.STATUS_UPDATE, raw_message)
+
+            # Try to parse as client line
             client = self._status_parser.parse_client_line(raw_message)
             if client:
-                self._status_client_count += 1
+                self._collected_clients.append(client)
                 self.logger.info(
                     f"[STATUS] Client {client['client_id']} "
                     f"{client['name']} ({client['ip']})"
@@ -56,26 +82,12 @@ class AMPMessageProcessor(BaseMessageProcessor):
                     raw_message,
                     {"client_data": client},
                 )
+            else:
+                self.logger.debug(
+                    f"In player section but not a client line: {raw_message[:50]}"
+                )
+                return ParsedMessage(MessageType.STATUS_UPDATE, raw_message)
 
-            return ParsedMessage(MessageType.STATUS_UPDATE, raw_message)
-
+        # Not in player section, regular message
+        self.logger.debug(f"Regular message: {raw_message[:50]}...")
         return ParsedMessage(MessageType.UNKNOWN, raw_message)
-
-    def _complete_status_parsing(self) -> ParsedMessage:
-        self.logger.info(
-            f"Status parsing completed ({self._status_client_count} clients)"
-        )
-
-        clients: List[Dict] = []
-        for line in self._status_parser.lines:
-            client = self._status_parser.parse_client_line(line)
-            if client:
-                clients.append(client)
-
-        self._status_parser.complete()
-
-        return ParsedMessage(
-            MessageType.STATUS_UPDATE,
-            "STATUS_COMPLETE",
-            {"clients": clients, "status_complete": True},
-        )

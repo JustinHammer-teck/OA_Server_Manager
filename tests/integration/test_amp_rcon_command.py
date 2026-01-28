@@ -121,8 +121,12 @@ async def test_connection_and_authentication():
         success = await client.login()
         assert success is True
         assert client.is_authenticated
-        print(f"ADS Session: {client._session_id[:20] if client._session_id else 'None'}...")
-        print(f"Instance Session: {client._instance_session_id[:20] if client._instance_session_id else 'None'}...")
+        print(
+            f"ADS Session: {client._session_id[:20] if client._session_id else 'None'}..."
+        )
+        print(
+            f"Instance Session: {client._instance_session_id[:20] if client._instance_session_id else 'None'}..."
+        )
     finally:
         await client.close()
 
