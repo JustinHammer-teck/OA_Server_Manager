@@ -65,7 +65,7 @@ def cleanup():
                 future = asyncio.run_coroutine_threadsafe(
                     adapter.disconnect(), async_loop
                 )
-                future.result(timeout=5)
+                future.result(timeout=2)
         except Exception as e:
             logging.warning(f"Adapter disconnect error: {e}")
 
@@ -269,10 +269,15 @@ class AdminApp(App):
     def action_quit(self) -> None:
         def check_quit(confirmed: bool | None) -> None:
             if confirmed:
-                cleanup()
-                self.exit()
+                self._do_quit()
 
         self.push_screen(QuitConfirmScreen(), check_quit)
+
+    @work(thread=True)
+    def _do_quit(self):
+        """Run cleanup in background thread so TUI doesn't freeze."""
+        cleanup()
+        self.call_from_thread(self.exit)
 
     def update_status_display(self):
         try:
